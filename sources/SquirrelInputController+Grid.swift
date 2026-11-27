@@ -14,6 +14,7 @@ extension SquirrelInputController {
     if success {
       gridState.reset()
       gridState.compositionKey = ""
+      inputPositionTracker.reset()
       rimeUpdate()
     }
     return success
@@ -377,8 +378,7 @@ private extension SquirrelInputController {
   func presentGridLayout(_ layout: SquirrelGridLayout, panel: SquirrelPanel) {
     guard let client = client else { return }
     gridState.currentLayout = layout
-    var inputPos = NSRect()
-    client.attributes(forCharacterIndex: 0, lineHeightRectangle: &inputPos)
+    let inputPos = currentInputPosition(for: client, hasActiveComposition: true)
     panel.position = inputPos
     panel.inputController = self
     panel.updateGrid(layout, preedit: gridState.panelPreedit, selRange: gridState.panelSelRange, caretPos: gridState.panelCaretPos)

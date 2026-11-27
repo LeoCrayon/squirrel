@@ -71,4 +71,104 @@ final class SquirrelConfigAndThemeTests: XCTestCase {
       XCTAssertNotNil(labelColor?.usingColorSpace(.sRGB))
     }
   }
+
+  func testInputPositionTrackerCompensatesStaleAttr0AcrossWindowDrags() {
+    var tracker = SquirrelInputPositionTracker()
+
+    // 1. Replay exact dual-monitor TextEdit drag telemetry from macOS 27.2.
+    let initialTextEditAttr0 = NSRect(x: -1477, y: 1318, width: 1, height: 14)
+    var currentWinTopLeft = CGPoint(x: -1482, y: -315)
+    let firstPos = tracker.resolve(
+      rawAttr0: initialTextEditAttr0,
+      bundleID: "com.apple.TextEdit",
+      hasActiveComposition: true,
+      findWindowAtAttr0: { (windowID: 17926, quartzTopLeft: currentWinTopLeft) },
+      lookupWindowTopLeft: { _ in currentWinTopLeft }
+    )
+    XCTAssertEqual(firstPos, initialTextEditAttr0)
+
+    currentWinTopLeft = CGPoint(x: -1119, y: 189)
+    let drag1Pos = tracker.resolve(
+      rawAttr0: initialTextEditAttr0,
+      bundleID: "com.apple.TextEdit",
+      hasActiveComposition: true,
+      findWindowAtAttr0: { nil },
+      lookupWindowTopLeft: { _ in currentWinTopLeft }
+    )
+    XCTAssertEqual(drag1Pos, NSRect(x: -1114, y: 814, width: 1, height: 14))
+
+    currentWinTopLeft = CGPoint(x: -2226, y: 263)
+    let drag2Pos = tracker.resolve(
+      rawAttr0: initialTextEditAttr0,
+      bundleID: "com.apple.TextEdit",
+      hasActiveComposition: true,
+      findWindowAtAttr0: { nil },
+      lookupWindowTopLeft: { _ in currentWinTopLeft }
+    )
+    XCTAssertEqual(drag2Pos, NSRect(x: -2221, y: 740, width: 1, height: 14))
+
+    currentWinTopLeft = CGPoint(x: -2296, y: -438)
+    let drag3Pos = tracker.resolve(
+      rawAttr0: initialTextEditAttr0,
+      bundleID: "com.apple.TextEdit",
+      hasActiveComposition: true,
+      findWindowAtAttr0: { nil },
+      lookupWindowTopLeft: { _ in currentWinTopLeft }
+    )
+    XCTAssertEqual(drag3Pos, NSRect(x: -2291, y: 1441, width: 1, height: 14))
+
+    // 2. Replay exact Antigravity (Electron) drag telemetry.
+    tracker.reset()
+    let initialElectronAttr0 = NSRect(x: -1868, y: 626, width: 1, height: 18)
+    var electronWinTopLeft = CGPoint(x: -2450, y: -448)
+    _ = tracker.resolve(
+      rawAttr0: initialElectronAttr0,
+      bundleID: "com.google.antigravity",
+      hasActiveComposition: true,
+      findWindowAtAttr0: { (windowID: 7075, quartzTopLeft: electronWinTopLeft) },
+      lookupWindowTopLeft: { _ in electronWinTopLeft }
+    )
+    electronWinTopLeft = CGPoint(x: -2147, y: -265)
+    let electronDragged = tracker.resolve(
+      rawAttr0: initialElectronAttr0,
+      bundleID: "com.google.antigravity",
+      hasActiveComposition: true,
+      findWindowAtAttr0: { nil },
+      lookupWindowTopLeft: { _ in electronWinTopLeft }
+    )
+    XCTAssertEqual(electronDragged, NSRect(x: -1565, y: 443, width: 1, height: 18))
+
+    // 3. When rawAttr0 itself updates, re-anchor without double-applying offset.
+    let updatedAttr0 = NSRect(x: -1565, y: 444, width: 1, height: 17)
+    let reanchored = tracker.resolve(
+      rawAttr0: updatedAttr0,
+      bundleID: "com.google.antigravity",
+      hasActiveComposition: true,
+      findWindowAtAttr0: { (windowID: 7075, quartzTopLeft: electronWinTopLeft) },
+      lookupWindowTopLeft: { _ in electronWinTopLeft }
+    )
+    XCTAssertEqual(reanchored, updatedAttr0)
+
+    // 4. Inactive composition resets anchor and returns rawAttr0.
+    let inactive = tracker.resolve(
+      rawAttr0: updatedAttr0,
+      bundleID: "com.google.antigravity",
+      hasActiveComposition: false,
+      findWindowAtAttr0: { (windowID: 7075, quartzTopLeft: electronWinTopLeft) },
+      lookupWindowTopLeft: { _ in electronWinTopLeft }
+    )
+    XCTAssertEqual(inactive, updatedAttr0)
+    XCTAssertNil(tracker.anchor)
+
+    // 5. Missing host window leaves anchor nil and returns rawAttr0.
+    let noHost = tracker.resolve(
+      rawAttr0: updatedAttr0,
+      bundleID: "com.unknown.app",
+      hasActiveComposition: true,
+      findWindowAtAttr0: { nil },
+      lookupWindowTopLeft: { _ in nil }
+    )
+    XCTAssertEqual(noHost, updatedAttr0)
+    XCTAssertNil(tracker.anchor)
+  }
 }

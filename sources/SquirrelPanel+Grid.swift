@@ -210,6 +210,7 @@ extension SquirrelPanel {
       && sameComp
       && !flippedSide
       && (gridActiveShrinkTargetSize == layout.panelSize)
+      && (lastGridCardScreenRect.origin == cardScreenRect.origin)
     if !keepingInFlightShrink {
       gridCollapseResizeWorkItem?.cancel()
       gridCollapseResizeWorkItem = nil

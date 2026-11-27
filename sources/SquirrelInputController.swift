@@ -29,6 +29,7 @@ final class SquirrelInputController: IMKInputController {
   private var currentApp: String = ""
 
   var gridState = SquirrelGridState()
+  var inputPositionTracker = SquirrelInputPositionTracker()
 
   // swiftlint:disable:next cyclomatic_complexity
   override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
@@ -195,6 +196,7 @@ final class SquirrelInputController: IMKInputController {
       lastModifiers.remove(.capsLock)
     }
     preedit = ""
+    inputPositionTracker.reset()
     if session != 0 {
       let state = rimeAPI.get_option(session, "ascii_mode")
       let label = rimeAPI.get_state_label_abbreviated(session, "ascii_mode", state, true).asString
@@ -225,6 +227,7 @@ final class SquirrelInputController: IMKInputController {
   }
 
   override func deactivateServer(_ sender: Any!) {
+    inputPositionTracker.reset()
     hidePalettes()
     commitComposition(sender)
     client = nil
@@ -233,6 +236,7 @@ final class SquirrelInputController: IMKInputController {
   override func hidePalettes() {
     gridState.reset()
     gridState.compositionKey = ""
+    inputPositionTracker.reset()
     NSApp.squirrelAppDelegate.panel?.hide()
     super.hidePalettes()
   }
@@ -240,6 +244,7 @@ final class SquirrelInputController: IMKInputController {
   override func commitComposition(_ sender: Any!) {
     gridState.reset()
     gridState.compositionKey = ""
+    inputPositionTracker.reset()
     self.client ?= sender as? IMKTextInput
     if session != 0 {
       if let input = rimeAPI.get_input(session) {
@@ -609,6 +614,7 @@ extension SquirrelInputController {
 
     client.insertText(string, replacementRange: .empty)
     preedit = ""
+    inputPositionTracker.reset()
     hidePalettes()
   }
 
@@ -634,11 +640,93 @@ extension SquirrelInputController {
     client.setMarkedText(attrString, selectionRange: NSRange(location: caretPos, length: 0), replacementRange: .empty)
   }
 
+  func currentInputPosition(for client: IMKTextInput, hasActiveComposition: Bool) -> NSRect {
+    var rawAttr0 = NSRect.zero
+    client.attributes(forCharacterIndex: 0, lineHeightRectangle: &rawAttr0)
+    let bundleID = client.bundleIdentifier() ?? currentApp
+    return inputPositionTracker.resolve(
+      rawAttr0: rawAttr0,
+      bundleID: bundleID,
+      hasActiveComposition: hasActiveComposition,
+      findWindowAtAttr0: {
+        Self.findHostWindow(containingAppKitRect: rawAttr0, bundleID: bundleID)
+      },
+      lookupWindowTopLeft: { windowID in
+        Self.windowQuartzTopLeft(windowID: windowID)
+      }
+    )
+  }
+
+  private static func findHostWindow(
+    containingAppKitRect rect: NSRect,
+    bundleID: String
+  ) -> (windowID: CGWindowID, quartzTopLeft: CGPoint)? {
+    guard let windowList = CGWindowListCopyWindowInfo(
+      [.optionOnScreenOnly, .excludeDesktopElements],
+      kCGNullWindowID
+    ) as? [[String: Any]] else {
+      return nil
+    }
+
+    let selfPID = ProcessInfo.processInfo.processIdentifier
+    var targetPIDs = Set<pid_t>()
+    if let frontApp = NSWorkspace.shared.frontmostApplication,
+       frontApp.processIdentifier != selfPID,
+       bundleID.isEmpty || frontApp.bundleIdentifier == bundleID {
+      targetPIDs.insert(frontApp.processIdentifier)
+    }
+    if !bundleID.isEmpty {
+      for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+      where app.processIdentifier != selfPID {
+        targetPIDs.insert(app.processIdentifier)
+      }
+    }
+    guard !targetPIDs.isEmpty else { return nil }
+
+    let primaryHeight = (NSScreen.screens.first(where: { $0.frame.origin == .zero }) ?? NSScreen.screens.first)?.frame.height ?? 0
+    guard primaryHeight > 0 else { return nil }
+    let caretQuartzPoint = CGPoint(x: rect.midX, y: primaryHeight - rect.midY)
+
+    var fallbackMatch: (windowID: CGWindowID, quartzTopLeft: CGPoint)?
+    for info in windowList {
+      guard let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
+            targetPIDs.contains(ownerPID),
+            let winNum = info[kCGWindowNumber as String] as? UInt32,
+            let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
+            let qRect = CGRect(dictionaryRepresentation: boundsDict),
+            qRect.width > 50, qRect.height > 50,
+            qRect.insetBy(dx: -12, dy: -12).contains(caretQuartzPoint) else {
+        continue
+      }
+      let layer = (info[kCGWindowLayer as String] as? Int) ?? 0
+      let candidate = (windowID: CGWindowID(winNum), quartzTopLeft: qRect.origin)
+      if layer == 0 {
+        return candidate
+      }
+      if fallbackMatch == nil {
+        fallbackMatch = candidate
+      }
+    }
+    return fallbackMatch
+  }
+
+  private static func windowQuartzTopLeft(windowID: CGWindowID) -> CGPoint? {
+    guard let windowList = CGWindowListCopyWindowInfo(
+      [.optionIncludingWindow],
+      windowID
+    ) as? [[String: Any]],
+          let info = windowList.first,
+          let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
+          let qRect = CGRect(dictionaryRepresentation: boundsDict) else {
+      return nil
+    }
+    return qRect.origin
+  }
+
   // swiftlint:disable:next function_parameter_count
   func showPanel(preedit: String, selRange: NSRange, caretPos: Int, candidates: [String], comments: [String], labels: [String], highlighted: Int, page: Int, lastPage: Bool) {
     guard let client = client else { return }
-    var inputPos = NSRect()
-    client.attributes(forCharacterIndex: 0, lineHeightRectangle: &inputPos)
+    let inputPos = currentInputPosition(for: client, hasActiveComposition: !preedit.isEmpty || !candidates.isEmpty)
     if let panel = NSApp.squirrelAppDelegate.panel {
       panel.position = inputPos
       panel.inputController = self
