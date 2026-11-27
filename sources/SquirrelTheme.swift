@@ -16,6 +16,9 @@ final class SquirrelTheme {
   enum StatusMessageType: String {
     case long, short, mix
   }
+  enum GridRowStyle: String {
+    case native, border
+  }
   enum RimeColorSpace {
     case displayP3, sRGB
     static func from(name: String) -> Self {
@@ -69,6 +72,14 @@ final class SquirrelTheme {
   private(set) var inlinePreedit = false
   private(set) var inlineCandidate = false
   private(set) var showPaging = false
+  private(set) var expandableGrid = true
+  private(set) var gridAnimation = true
+  private(set) var gridMaxColumns: Int = 0
+  private(set) var gridExpandedColumns: Int = 0
+  private(set) var gridVisibleRows: Int = 5
+  private(set) var gridBottomMarginRows: Int = 2
+  private(set) var gridRowStyle: GridRowStyle = .native
+  private(set) var gridRowBorderColor: NSColor?
 
   private var fonts = [NSFont]()
   private var labelFonts = [NSFont]()
@@ -204,6 +215,18 @@ final class SquirrelTheme {
       0
     }
   }
+  var resolvedGridRowBorderColor: NSColor {
+    if let gridRowBorderColor {
+      return gridRowBorderColor
+    }
+    if let highlightedBackColor {
+      return highlightedBackColor.withAlphaComponent(max(highlightedBackColor.alphaComponent, 0.85))
+    }
+    return .controlAccentColor
+  }
+  var resolvedGridColumnBackColor: NSColor {
+    (highlightedBackColor ?? .selectedTextBackgroundColor).withAlphaComponent(0.14)
+  }
 
   func load(config: SquirrelConfig, dark: Bool) {
     linear ?= config.getString("style/candidate_list_layout").map { $0 == "linear" }
@@ -214,6 +237,13 @@ final class SquirrelTheme {
     mutualExclusive ?= config.getBool("style/mutual_exclusive")
     memorizeSize ?= config.getBool("style/memorize_size")
     showPaging ?= config.getBool("style/show_paging")
+    expandableGrid ?= config.getBool("style/expandable_grid")
+    gridAnimation ?= config.getBool("style/grid_animation")
+    gridMaxColumns ?= config.getInt("style/grid_max_columns").map { max(0, $0) }
+    gridExpandedColumns ?= config.getInt("style/grid_expanded_columns").map { max(0, $0) }
+    gridVisibleRows ?= config.getInt("style/grid_visible_rows").map { max(1, $0) }
+    gridBottomMarginRows ?= config.getInt("style/grid_bottom_margin_rows").map { max(0, $0) }
+    gridRowStyle ?= .init(rawValue: config.getString("style/grid_row_style") ?? "")
 
     statusMessageType ?= .init(rawValue: config.getString("style/status_message_type") ?? "")
     candidateFormat ?= config.getString("style/candidate_format")
@@ -261,6 +291,7 @@ final class SquirrelTheme {
         highlightedCommentTextColor = config.getColor("\(prefix)/hilited_comment_text_color", inSpace: colorSpace)
         accentCommentTextColor = config.getColor("\(prefix)/accent_text_color", inSpace: colorSpace)
         warningCommentTextColor = config.getColor("\(prefix)/warning_text_color", inSpace: colorSpace)
+        gridRowBorderColor = config.getColor("\(prefix)/grid_row_border_color", inSpace: colorSpace)
 
         // Per-color-scheme settings override global style settings.
         linear ?= config.getString("\(prefix)/candidate_list_layout").map { $0 == "linear" }
@@ -270,6 +301,13 @@ final class SquirrelTheme {
         translucency ?= config.getBool("\(prefix)/translucency")
         mutualExclusive ?= config.getBool("\(prefix)/mutual_exclusive")
         showPaging ?= config.getBool("\(prefix)/show_paging")
+        expandableGrid ?= config.getBool("\(prefix)/expandable_grid")
+        gridAnimation ?= config.getBool("\(prefix)/grid_animation")
+        gridMaxColumns ?= config.getInt("\(prefix)/grid_max_columns").map { max(0, $0) }
+        gridExpandedColumns ?= config.getInt("\(prefix)/grid_expanded_columns").map { max(0, $0) }
+        gridVisibleRows ?= config.getInt("\(prefix)/grid_visible_rows").map { max(1, $0) }
+        gridBottomMarginRows ?= config.getInt("\(prefix)/grid_bottom_margin_rows").map { max(0, $0) }
+        gridRowStyle ?= .init(rawValue: config.getString("\(prefix)/grid_row_style") ?? "")
         candidateFormat ?= config.getString("\(prefix)/candidate_format")
         fontName ?= config.getString("\(prefix)/font_face")
         fontSize ?= config.getDouble("\(prefix)/font_point")

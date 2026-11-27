@@ -21,7 +21,7 @@ final class SquirrelApplicationDelegate: NSObject, NSApplicationDelegate, SPUSta
   var enableNotifications = false
   var showStatusIcon: Bool = true
   var statusItem: NSStatusItem?
-  let updateController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+  let updateController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
   var supportsGentleScheduledUpdateReminders: Bool {
     true
   }
@@ -48,10 +48,6 @@ final class SquirrelApplicationDelegate: NSObject, NSApplicationDelegate, SPUSta
   }
 
   func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-    if response.notification.request.identifier == Self.updateNotificationIdentifier && response.actionIdentifier == UNNotificationDefaultActionIdentifier {
-      updateController.updater.checkForUpdates()
-    }
-
     completionHandler()
   }
 
@@ -99,12 +95,7 @@ final class SquirrelApplicationDelegate: NSObject, NSApplicationDelegate, SPUSta
   }
 
   func checkForUpdates() {
-    if updateController.updater.canCheckForUpdates {
-      print("Checking for updates")
-      updateController.updater.checkForUpdates()
-    } else {
-      print("Cannot check for updates")
-    }
+    print("Auto-update is disabled in this custom Squirrel build")
   }
 
   func openWiki() {
