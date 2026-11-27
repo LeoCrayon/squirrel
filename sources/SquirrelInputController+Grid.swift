@@ -161,6 +161,7 @@ extension SquirrelInputController {
     presentGridLayout(layout, panel: panel)
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   func handleGridKey(_ rimeKeycode: UInt32, modifiers _: UInt32, eventModifiers: NSEvent.ModifierFlags) -> Bool {
     guard let panel = NSApp.squirrelAppDelegate.panel,
           panel.isExpandableGridEnabled,
@@ -195,7 +196,7 @@ extension SquirrelInputController {
       return true
     case .selectCandidate(let globalIndex):
       return selectGridCandidate(globalIndex: globalIndex)
-    case .expandAndMove(let targetRowDelta, _):
+    case .expandAndMove(let targetRowDelta):
       gridState.isExpanded = true
       gridState.packedRows = nil
       fetchGridCandidates(minCount: max(gridState.candidates.count, (panel.gridVisibleRowsConfig + 4) * maxCols))
@@ -368,7 +369,8 @@ private extension SquirrelInputController {
     if let cached = gridState.packedRows,
        cached.candidateCount == gridState.candidates.count,
        cached.isExpanded == gridState.isExpanded,
-       cached.maxColumns == maxCols {
+       cached.maxColumns == maxCols,
+       cached.expandedColumns == panel.gridExpandedColumnsConfig {
       return cached
     }
     let packed = panel.packGridRows(state: gridState, maxColumns: maxCols, specialCommentIndices: specialCommentIndices)

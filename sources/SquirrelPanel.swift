@@ -104,6 +104,9 @@ final class SquirrelPanel: NSPanel {
   var gridMaxColumnsConfig: Int {
     view.currentTheme.gridMaxColumns
   }
+  var gridExpandedColumnsConfig: Int {
+    view.currentTheme.gridExpandedColumns
+  }
   var gridVisibleRowsConfig: Int {
     view.currentTheme.gridVisibleRows
   }

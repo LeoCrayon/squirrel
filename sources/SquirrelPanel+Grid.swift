@@ -107,8 +107,7 @@ extension SquirrelPanel {
       targetGridWidth: metrics.targetGridWidth,
       maxRowWidth: metrics.maxRowWidth,
       unitRefWidth: metrics.unitRefWidth,
-      colGap: metrics.colGap,
-      cellPadX: metrics.cellPadX
+      colGap: metrics.colGap
     )
     return SquirrelGridLayoutEngine.packRows(candidates: state.candidates, config: packConfig) { cand, slot in
       let sampleAttr = SquirrelGridLayoutEngine.formatCell(
@@ -175,6 +174,7 @@ extension SquirrelPanel {
     showGrid(layout)
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   func showGrid(_ layout: SquirrelGridLayout) {
     currentScreen()
     let theme = view.currentTheme
@@ -328,6 +328,7 @@ extension SquirrelPanel {
     lastGridCompositionID = layout.compositionID
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   func handleGridEvent(_ event: NSEvent) {
     switch event.type {
     case .leftMouseDown:
@@ -395,6 +396,7 @@ private extension SquirrelPanel {
     }
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   func configureGridBackdrop(theme: SquirrelTheme, targetAppearance: NSAppearance?) -> NSView? {
     let bgStyle = theme.resolvedGridBackgroundStyle
     let cardCornerRadius = theme.resolvedGridCornerRadius
@@ -449,6 +451,7 @@ private extension SquirrelPanel {
     CATransaction.commit()
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   func handleGridScrollEvent(_ event: NSEvent) {
     let stepThreshold: CGFloat = 24
     if event.phase == .began {

@@ -274,6 +274,7 @@ private extension SquirrelView {
     return root
   }
 
+  // swiftlint:disable:next function_parameter_count
   func applyBoxRect(
     _ targetRect: NSRect,
     from fromRect: NSRect?,
@@ -442,6 +443,7 @@ private extension SquirrelView {
     lastGridRow0Cells = layout.viewportTopRow == 0 ? (layout.visibleRows.first?.cells ?? []) : []
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   func updateGridBackgroundAndMaskLayers(
     layout: SquirrelGridLayout,
     fromCardRect: NSRect?,
@@ -516,6 +518,7 @@ private extension SquirrelView {
     }
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   func updateGridPreeditAndHighlightLayers(
     layout: SquirrelGridLayout,
     shouldAnimate: Bool,

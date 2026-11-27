@@ -27,13 +27,11 @@ final class SquirrelGridStateTests: XCTestCase {
   private func makePacked(_ rows: [SquirrelGridRow], isExpanded: Bool, hasHiddenCollapsed: Bool = true) -> SquirrelGridPackedRows {
     SquirrelGridPackedRows(
       allRows: rows,
-      collapsedRow0Count: rows.first?.cells.count ?? 0,
       hasHiddenCollapsedCandidates: hasHiddenCollapsed,
       totalGridWidth: 300,
       isExpanded: isExpanded,
       maxColumns: 5,
       expandedColumns: 5,
-      fixedGridWidth: 300,
       candidateCount: rows.reduce(0) { $0 + $1.cells.count }
     )
   }
@@ -174,7 +172,7 @@ final class SquirrelGridStateTests: XCTestCase {
     // Default (.row): '=' when collapsed expands and moves +1 row
     XCTAssertEqual(
       state.interpretKey(.equal, eventModifiers: [], isCaretInsidePreedit: false, isChordTyping: false, maxColumns: 4, visibleRows: 5),
-      .expandAndMove(targetRowDelta: 1, minVisibleRows: 5)
+      .expandAndMove(targetRowDelta: 1)
     )
 
     state.packedRows = makePacked(rows, isExpanded: true)
@@ -210,7 +208,7 @@ final class SquirrelGridStateTests: XCTestCase {
     state.packedRows = makePacked(rows, isExpanded: false)
     XCTAssertEqual(
       state.interpretKey(.equal, eventModifiers: [], isCaretInsidePreedit: false, isChordTyping: false, maxColumns: 4, visibleRows: 5, pagingMode: .page),
-      .expandAndMove(targetRowDelta: 1, minVisibleRows: 5)
+      .expandAndMove(targetRowDelta: 1)
     )
 
     state.isExpanded = true

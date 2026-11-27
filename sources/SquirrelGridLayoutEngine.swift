@@ -110,7 +110,10 @@ enum SquirrelGridLayoutEngine {
     line.addAttribute(.paragraphStyle, value: singleLineStyle, range: NSRange(location: 0, length: line.length))
     return line
   }
+}
 
+extension SquirrelGridLayoutEngine {
+  // swiftlint:disable:next cyclomatic_complexity
   static func packRows(
     candidates: [SquirrelGridCandidate],
     config: SquirrelGridPackConfig,
@@ -120,13 +123,11 @@ enum SquirrelGridLayoutEngine {
     guard !candidates.isEmpty else {
       return SquirrelGridPackedRows(
         allRows: [],
-        collapsedRow0Count: 0,
         hasHiddenCollapsedCandidates: false,
         totalGridWidth: min(config.maxRowWidth, config.targetGridWidth),
         isExpanded: config.isExpanded,
         maxColumns: effectiveMaxCols,
         expandedColumns: config.expandedColumns,
-        fixedGridWidth: min(config.maxRowWidth, config.targetGridWidth),
         candidateCount: 0
       )
     }
@@ -165,13 +166,11 @@ enum SquirrelGridLayoutEngine {
     if !config.isExpanded {
       return SquirrelGridPackedRows(
         allRows: [SquirrelGridRow(rowIndex: 0, cells: collapsedRow0Cells)],
-        collapsedRow0Count: collapsedRow0Cells.count,
         hasHiddenCollapsedCandidates: hasHiddenCollapsed,
         totalGridWidth: fixedGridWidth,
         isExpanded: false,
         maxColumns: effectiveMaxCols,
         expandedColumns: config.expandedColumns,
-        fixedGridWidth: fixedGridWidth,
         candidateCount: candidates.count
       )
     }
@@ -261,17 +260,16 @@ enum SquirrelGridLayoutEngine {
 
     return SquirrelGridPackedRows(
       allRows: allRows,
-      collapsedRow0Count: collapsedRow0Cells.count,
       hasHiddenCollapsedCandidates: hasHiddenCollapsed,
       totalGridWidth: expandedGridWidth,
       isExpanded: true,
       maxColumns: effectiveMaxCols,
       expandedColumns: config.expandedColumns,
-      fixedGridWidth: fixedGridWidth,
       candidateCount: candidates.count
     )
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   static func buildLayout(
     packed: SquirrelGridPackedRows,
     input: SquirrelGridLayoutBuildInput

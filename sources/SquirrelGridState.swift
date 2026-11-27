@@ -25,7 +25,7 @@ enum SquirrelGridKeyResult: Equatable {
   case passThrough
   case consumedNoChange
   case selectCandidate(globalIndex: Int)
-  case expandAndMove(targetRowDelta: Int, minVisibleRows: Int)
+  case expandAndMove(targetRowDelta: Int)
   case moveVertical(rowDelta: Int)
   case moveRight
   case moveLeft
@@ -257,19 +257,19 @@ struct SquirrelGridState {
     switch key {
     case .down:
       if !isExpanded {
-        return canExpand() ? .expandAndMove(targetRowDelta: 1, minVisibleRows: visibleRows) : .consumedNoChange
+        return canExpand() ? .expandAndMove(targetRowDelta: 1) : .consumedNoChange
       }
       return .moveVertical(rowDelta: 1)
 
     case .pageDown:
       if !isExpanded {
-        return canExpand() ? .expandAndMove(targetRowDelta: 1, minVisibleRows: visibleRows) : .consumedNoChange
+        return canExpand() ? .expandAndMove(targetRowDelta: 1) : .consumedNoChange
       }
       return .moveVertical(rowDelta: max(1, visibleRows))
 
     case .equal:
       if !isExpanded {
-        return canExpand() ? .expandAndMove(targetRowDelta: 1, minVisibleRows: visibleRows) : .consumedNoChange
+        return canExpand() ? .expandAndMove(targetRowDelta: 1) : .consumedNoChange
       }
       let step = pagingMode == .page ? max(1, visibleRows) : 1
       return .moveVertical(rowDelta: step)

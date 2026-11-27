@@ -15,8 +15,7 @@ final class SquirrelGridLayoutEngineTests: XCTestCase {
     targetGridWidth: CGFloat = 320,
     maxRowWidth: CGFloat = 600,
     unitRefWidth: CGFloat = 56,
-    colGap: CGFloat = 2,
-    cellPadX: CGFloat = 5
+    colGap: CGFloat = 2
   ) -> SquirrelGridPackConfig {
     SquirrelGridPackConfig(
       maxColumns: maxColumns,
@@ -25,15 +24,13 @@ final class SquirrelGridLayoutEngineTests: XCTestCase {
       targetGridWidth: targetGridWidth,
       maxRowWidth: maxRowWidth,
       unitRefWidth: unitRefWidth,
-      colGap: colGap,
-      cellPadX: cellPadX
+      colGap: colGap
     )
   }
 
   func testPackRowsHandlesEmptyAndSingleCandidate() {
     let emptyPacked = SquirrelGridLayoutEngine.packRows(candidates: [], config: makeConfig()) { _, _ in 40 }
     XCTAssertTrue(emptyPacked.allRows.isEmpty)
-    XCTAssertEqual(emptyPacked.collapsedRow0Count, 0)
     XCTAssertFalse(emptyPacked.hasHiddenCollapsedCandidates)
 
     let single = makeCandidates(1)
@@ -52,7 +49,7 @@ final class SquirrelGridLayoutEngineTests: XCTestCase {
       cand.globalIndex == 0 ? 500 : 40
     }
     XCTAssertEqual(packed.allRows.count, 1)
-    XCTAssertEqual(packed.collapsedRow0Count, 1)
+    XCTAssertEqual(packed.allRows[0].cells.count, 1)
     XCTAssertEqual(packed.allRows[0].cells[0].width, 260)
     XCTAssertTrue(packed.hasHiddenCollapsedCandidates)
   }

@@ -34,13 +34,11 @@ struct SquirrelGridRow {
 
 struct SquirrelGridPackedRows {
   let allRows: [SquirrelGridRow]
-  let collapsedRow0Count: Int
   let hasHiddenCollapsedCandidates: Bool
   let totalGridWidth: CGFloat
   let isExpanded: Bool
   let maxColumns: Int
   let expandedColumns: Int
-  let fixedGridWidth: CGFloat
   let candidateCount: Int
 }
 
@@ -52,7 +50,6 @@ struct SquirrelGridPackConfig {
   let maxRowWidth: CGFloat
   let unitRefWidth: CGFloat
   let colGap: CGFloat
-  let cellPadX: CGFloat
 }
 
 struct SquirrelGridLayoutBuildInput {
