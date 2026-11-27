@@ -184,7 +184,8 @@ extension SquirrelInputController {
       isCaretInsidePreedit: caretInPreedit,
       isChordTyping: isChordTyping,
       maxColumns: maxCols,
-      visibleRows: panel.gridVisibleRowsConfig
+      visibleRows: panel.gridVisibleRowsConfig,
+      pagingMode: panel.gridPagingModeConfig
     )
 
     switch action {

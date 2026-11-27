@@ -72,6 +72,26 @@ final class SquirrelConfigAndThemeTests: XCTestCase {
     }
   }
 
+  func testThemeLoadSupportsGridPagingModeOverride() {
+    let defaultTheme = SquirrelTheme()
+    XCTAssertEqual(defaultTheme.gridPagingMode, .row)
+
+    let globalPageMock = MockSquirrelConfig()
+    globalPageMock.strings["style/color_scheme"] = "custom"
+    globalPageMock.strings["style/grid_paging_mode"] = "page"
+    let globalPageTheme = SquirrelTheme()
+    globalPageTheme.load(config: globalPageMock, dark: false)
+    XCTAssertEqual(globalPageTheme.gridPagingMode, .page)
+
+    let schemeOverrideMock = MockSquirrelConfig()
+    schemeOverrideMock.strings["style/color_scheme"] = "custom"
+    schemeOverrideMock.strings["style/grid_paging_mode"] = "page"
+    schemeOverrideMock.strings["preset_color_schemes/custom/grid_paging_mode"] = "row"
+    let schemeOverrideTheme = SquirrelTheme()
+    schemeOverrideTheme.load(config: schemeOverrideMock, dark: false)
+    XCTAssertEqual(schemeOverrideTheme.gridPagingMode, .row)
+  }
+
   func testInputPositionTrackerCompensatesStaleAttr0AcrossWindowDrags() {
     var tracker = SquirrelInputPositionTracker()
 
@@ -160,15 +180,90 @@ final class SquirrelConfigAndThemeTests: XCTestCase {
     XCTAssertEqual(inactive, updatedAttr0)
     XCTAssertNil(tracker.anchor)
 
-    // 5. Missing host window leaves anchor nil and returns rawAttr0.
+    // 5. Missing host window leaves anchor nil and caches negative lookup for identical (attr0, bundleID).
+    var lookupCount = 0
     let noHost = tracker.resolve(
       rawAttr0: updatedAttr0,
       bundleID: "com.unknown.app",
       hasActiveComposition: true,
-      findWindowAtAttr0: { nil },
+      findWindowAtAttr0: {
+        lookupCount += 1
+        return nil
+      },
       lookupWindowTopLeft: { _ in nil }
     )
     XCTAssertEqual(noHost, updatedAttr0)
     XCTAssertNil(tracker.anchor)
+    XCTAssertEqual(lookupCount, 1)
+
+    _ = tracker.resolve(
+      rawAttr0: updatedAttr0,
+      bundleID: "com.unknown.app",
+      hasActiveComposition: true,
+      findWindowAtAttr0: {
+        lookupCount += 1
+        return nil
+      },
+      lookupWindowTopLeft: { _ in nil }
+    )
+    XCTAssertEqual(lookupCount, 1)
+
+    // Changing rawAttr0 invalidates negative lookup cache.
+    let shiftedAttr0 = NSRect(x: -1560, y: 444, width: 1, height: 17)
+    _ = tracker.resolve(
+      rawAttr0: shiftedAttr0,
+      bundleID: "com.unknown.app",
+      hasActiveComposition: true,
+      findWindowAtAttr0: {
+        lookupCount += 1
+        return nil
+      },
+      lookupWindowTopLeft: { _ in nil }
+    )
+    XCTAssertEqual(lookupCount, 2)
+
+    // 6. Closed host window (lookupWindowTopLeft returns nil) clears anchor.
+    tracker.reset()
+    var windowOpen = true
+    _ = tracker.resolve(
+      rawAttr0: updatedAttr0,
+      bundleID: "com.apple.TextEdit",
+      hasActiveComposition: true,
+      findWindowAtAttr0: { (windowID: 42, quartzTopLeft: CGPoint(x: 100, y: 100)) },
+      lookupWindowTopLeft: { _ in windowOpen ? CGPoint(x: 100, y: 100) : nil }
+    )
+    XCTAssertNotNil(tracker.anchor)
+    windowOpen = false
+    let afterClose = tracker.resolve(
+      rawAttr0: updatedAttr0,
+      bundleID: "com.apple.TextEdit",
+      hasActiveComposition: true,
+      findWindowAtAttr0: { nil },
+      lookupWindowTopLeft: { _ in nil }
+    )
+    XCTAssertEqual(afterClose, updatedAttr0)
+    XCTAssertNil(tracker.anchor)
+  }
+
+  func testSelectHostWindowFiltersTransparentAndPrefersFrontmostFloatingOverBackground() {
+    let caret = CGPoint(x: 200, y: 200)
+    let entries = [
+      // Transparent overlay window (must be skipped)
+      SquirrelInputPositionTracker.WindowEntry(windowID: 1, ownerPID: 100, bounds: CGRect(x: 0, y: 0, width: 800, height: 800), layer: 0, alpha: 0.0),
+      // Desktop-level window (must be skipped)
+      SquirrelInputPositionTracker.WindowEntry(windowID: 2, ownerPID: 100, bounds: CGRect(x: 0, y: 0, width: 800, height: 800), layer: -1, alpha: 1.0),
+      // Frontmost floating input panel (layer 3)
+      SquirrelInputPositionTracker.WindowEntry(windowID: 3, ownerPID: 100, bounds: CGRect(x: 150, y: 150, width: 300, height: 120), layer: 3, alpha: 1.0),
+      // Background normal window (layer 0) behind the floating panel
+      SquirrelInputPositionTracker.WindowEntry(windowID: 4, ownerPID: 100, bounds: CGRect(x: 50, y: 50, width: 800, height: 600), layer: 0, alpha: 1.0)
+    ]
+
+    let selected = SquirrelInputPositionTracker.selectHostWindow(
+      from: entries,
+      targetPIDs: [100],
+      caretQuartzPoint: caret
+    )
+    XCTAssertEqual(selected?.windowID, 3)
+    XCTAssertEqual(selected?.quartzTopLeft, CGPoint(x: 150, y: 150))
   }
 }

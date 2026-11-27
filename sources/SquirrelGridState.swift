@@ -241,7 +241,8 @@ struct SquirrelGridState {
     isCaretInsidePreedit: Bool,
     isChordTyping: Bool,
     maxColumns: Int,
-    visibleRows: Int
+    visibleRows: Int,
+    pagingMode: SquirrelTheme.GridPagingMode = .row
   ) -> SquirrelGridKeyResult {
     guard !candidates.isEmpty else { return .passThrough }
     guard eventModifiers.intersection([.command, .option, .control, .shift]).isEmpty else {
@@ -260,19 +261,31 @@ struct SquirrelGridState {
       }
       return .moveVertical(rowDelta: 1)
 
-    case .pageDown, .equal:
+    case .pageDown:
       if !isExpanded {
         return canExpand() ? .expandAndMove(targetRowDelta: 1, minVisibleRows: visibleRows) : .consumedNoChange
       }
       return .moveVertical(rowDelta: max(1, visibleRows))
 
+    case .equal:
+      if !isExpanded {
+        return canExpand() ? .expandAndMove(targetRowDelta: 1, minVisibleRows: visibleRows) : .consumedNoChange
+      }
+      let step = pagingMode == .page ? max(1, visibleRows) : 1
+      return .moveVertical(rowDelta: step)
+
     case .up:
       guard isExpanded else { return .consumedNoChange }
       return clampedRow == 0 ? .collapse : .moveVertical(rowDelta: -1)
 
-    case .pageUp, .minus:
+    case .pageUp:
       guard isExpanded else { return .consumedNoChange }
       return clampedRow == 0 ? .collapse : .moveVertical(rowDelta: -max(1, visibleRows))
+
+    case .minus:
+      guard isExpanded else { return .consumedNoChange }
+      let step = pagingMode == .page ? max(1, visibleRows) : 1
+      return clampedRow == 0 ? .collapse : .moveVertical(rowDelta: -step)
 
     case .right:
       if !isExpanded && clampedCell == 0 && isCaretInsidePreedit {

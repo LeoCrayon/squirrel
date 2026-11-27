@@ -113,6 +113,9 @@ final class SquirrelPanel: NSPanel {
   var gridBottomMarginConfig: Int {
     view.currentTheme.gridBottomMarginRows
   }
+  var gridPagingModeConfig: SquirrelTheme.GridPagingMode {
+    view.currentTheme.gridPagingMode
+  }
 
   // swiftlint:disable:next cyclomatic_complexity
   override func sendEvent(_ event: NSEvent) {

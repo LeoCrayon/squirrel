@@ -163,4 +163,72 @@ final class SquirrelGridStateTests: XCTestCase {
     state.collapsePreserving(globalIndex: 10, collapsedRows: collapsed)
     XCTAssertEqual(state.activeCellIndex, 0)
   }
+
+  func testMinusAndEqualPagingRespectGridPagingMode() {
+    var state = SquirrelGridState()
+    let rows = makeRows(Array(repeating: 4, count: 10))
+    state.candidates = rows.flatMap(\.cells).map { SquirrelGridCandidate(globalIndex: $0.globalIndex, text: $0.text, comment: "") }
+    state.packedRows = makePacked(rows, isExpanded: false)
+    state.isExpanded = false
+
+    // Default (.row): '=' when collapsed expands and moves +1 row
+    XCTAssertEqual(
+      state.interpretKey(.equal, eventModifiers: [], isCaretInsidePreedit: false, isChordTyping: false, maxColumns: 4, visibleRows: 5),
+      .expandAndMove(targetRowDelta: 1, minVisibleRows: 5)
+    )
+
+    state.packedRows = makePacked(rows, isExpanded: true)
+    state.isExpanded = true
+    state.activeRow = 2
+
+    // Default (.row): '=' and '-' step by 1 row, while PageDown/PageUp still page by visibleRows
+    XCTAssertEqual(
+      state.interpretKey(.equal, eventModifiers: [], isCaretInsidePreedit: false, isChordTyping: false, maxColumns: 4, visibleRows: 5),
+      .moveVertical(rowDelta: 1)
+    )
+    XCTAssertEqual(
+      state.interpretKey(.minus, eventModifiers: [], isCaretInsidePreedit: false, isChordTyping: false, maxColumns: 4, visibleRows: 5),
+      .moveVertical(rowDelta: -1)
+    )
+    XCTAssertEqual(
+      state.interpretKey(.pageDown, eventModifiers: [], isCaretInsidePreedit: false, isChordTyping: false, maxColumns: 4, visibleRows: 5),
+      .moveVertical(rowDelta: 5)
+    )
+    XCTAssertEqual(
+      state.interpretKey(.pageUp, eventModifiers: [], isCaretInsidePreedit: false, isChordTyping: false, maxColumns: 4, visibleRows: 5),
+      .moveVertical(rowDelta: -5)
+    )
+
+    state.activeRow = 0
+    XCTAssertEqual(
+      state.interpretKey(.minus, eventModifiers: [], isCaretInsidePreedit: false, isChordTyping: false, maxColumns: 4, visibleRows: 5),
+      .collapse
+    )
+
+    // .page mode: '=' when collapsed expands +1, when expanded moves +visibleRows / -visibleRows
+    state.isExpanded = false
+    state.packedRows = makePacked(rows, isExpanded: false)
+    XCTAssertEqual(
+      state.interpretKey(.equal, eventModifiers: [], isCaretInsidePreedit: false, isChordTyping: false, maxColumns: 4, visibleRows: 5, pagingMode: .page),
+      .expandAndMove(targetRowDelta: 1, minVisibleRows: 5)
+    )
+
+    state.isExpanded = true
+    state.packedRows = makePacked(rows, isExpanded: true)
+    state.activeRow = 6
+    XCTAssertEqual(
+      state.interpretKey(.equal, eventModifiers: [], isCaretInsidePreedit: false, isChordTyping: false, maxColumns: 4, visibleRows: 5, pagingMode: .page),
+      .moveVertical(rowDelta: 5)
+    )
+    XCTAssertEqual(
+      state.interpretKey(.minus, eventModifiers: [], isCaretInsidePreedit: false, isChordTyping: false, maxColumns: 4, visibleRows: 5, pagingMode: .page),
+      .moveVertical(rowDelta: -5)
+    )
+
+    state.activeRow = 0
+    XCTAssertEqual(
+      state.interpretKey(.minus, eventModifiers: [], isCaretInsidePreedit: false, isChordTyping: false, maxColumns: 4, visibleRows: 5, pagingMode: .page),
+      .collapse
+    )
+  }
 }

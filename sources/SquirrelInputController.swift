@@ -643,7 +643,7 @@ extension SquirrelInputController {
   func currentInputPosition(for client: IMKTextInput, hasActiveComposition: Bool) -> NSRect {
     var rawAttr0 = NSRect.zero
     client.attributes(forCharacterIndex: 0, lineHeightRectangle: &rawAttr0)
-    let bundleID = client.bundleIdentifier() ?? currentApp
+    let bundleID = client.bundleIdentifier() ?? ""
     return inputPositionTracker.resolve(
       rawAttr0: rawAttr0,
       bundleID: bundleID,
@@ -687,27 +687,28 @@ extension SquirrelInputController {
     guard primaryHeight > 0 else { return nil }
     let caretQuartzPoint = CGPoint(x: rect.midX, y: primaryHeight - rect.midY)
 
-    var fallbackMatch: (windowID: CGWindowID, quartzTopLeft: CGPoint)?
-    for info in windowList {
+    let entries: [SquirrelInputPositionTracker.WindowEntry] = windowList.compactMap { info in
       guard let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
-            targetPIDs.contains(ownerPID),
             let winNum = info[kCGWindowNumber as String] as? UInt32,
             let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
-            let qRect = CGRect(dictionaryRepresentation: boundsDict),
-            qRect.width > 50, qRect.height > 50,
-            qRect.insetBy(dx: -12, dy: -12).contains(caretQuartzPoint) else {
-        continue
+            let qRect = CGRect(dictionaryRepresentation: boundsDict) else {
+        return nil
       }
       let layer = (info[kCGWindowLayer as String] as? Int) ?? 0
-      let candidate = (windowID: CGWindowID(winNum), quartzTopLeft: qRect.origin)
-      if layer == 0 {
-        return candidate
-      }
-      if fallbackMatch == nil {
-        fallbackMatch = candidate
-      }
+      let alpha = (info[kCGWindowAlpha as String] as? Double) ?? 1.0
+      return SquirrelInputPositionTracker.WindowEntry(
+        windowID: CGWindowID(winNum),
+        ownerPID: ownerPID,
+        bounds: qRect,
+        layer: layer,
+        alpha: alpha
+      )
     }
-    return fallbackMatch
+    return SquirrelInputPositionTracker.selectHostWindow(
+      from: entries,
+      targetPIDs: targetPIDs,
+      caretQuartzPoint: caretQuartzPoint
+    )
   }
 
   private static func windowQuartzTopLeft(windowID: CGWindowID) -> CGPoint? {

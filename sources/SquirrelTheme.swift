@@ -22,6 +22,9 @@ final class SquirrelTheme {
   enum GridBackgroundStyle: String {
     case auto, glass, blur, solid
   }
+  enum GridPagingMode: String {
+    case row, page
+  }
   enum RimeColorSpace {
     case displayP3, sRGB
     static func from(name: String) -> Self {
@@ -85,6 +88,7 @@ final class SquirrelTheme {
   private(set) var gridBottomMarginRows: Int = 1
   private(set) var gridRowStyle: GridRowStyle = .native
   private(set) var gridBackgroundStyle: GridBackgroundStyle = .auto
+  private(set) var gridPagingMode: GridPagingMode = .row
   private(set) var gridRowBorderColor: NSColor?
 
   private var fonts = [NSFont]()
@@ -276,6 +280,7 @@ final class SquirrelTheme {
     gridBottomMarginRows ?= config.getInt("style/grid_bottom_margin_rows").map { max(0, $0) }
     gridRowStyle ?= .init(rawValue: config.getString("style/grid_row_style") ?? "")
     gridBackgroundStyle ?= .init(rawValue: config.getString("style/grid_background_style") ?? "")
+    gridPagingMode ?= .init(rawValue: config.getString("style/grid_paging_mode") ?? "")
 
     statusMessageType ?= .init(rawValue: config.getString("style/status_message_type") ?? "")
     candidateFormat ?= config.getString("style/candidate_format")
@@ -343,6 +348,7 @@ final class SquirrelTheme {
         gridBottomMarginRows ?= config.getInt("\(prefix)/grid_bottom_margin_rows").map { max(0, $0) }
         gridRowStyle ?= .init(rawValue: config.getString("\(prefix)/grid_row_style") ?? "")
         gridBackgroundStyle ?= .init(rawValue: config.getString("\(prefix)/grid_background_style") ?? "")
+        gridPagingMode ?= .init(rawValue: config.getString("\(prefix)/grid_paging_mode") ?? "")
         candidateFormat ?= config.getString("\(prefix)/candidate_format")
         fontName ?= config.getString("\(prefix)/font_face")
         fontSize ?= config.getDouble("\(prefix)/font_point")
