@@ -226,7 +226,8 @@ final class SquirrelTheme {
       return gridRowBorderColor
     }
     if let highlightedBackColor {
-      return highlightedBackColor.withAlphaComponent(max(highlightedBackColor.alphaComponent, 0.85))
+      let alpha = highlightedBackColor.usingColorSpace(.sRGB)?.alphaComponent ?? 1.0
+      return alpha >= 0.85 ? highlightedBackColor : highlightedBackColor.withAlphaComponent(0.85)
     }
     return .controlAccentColor
   }

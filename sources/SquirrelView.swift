@@ -1259,8 +1259,9 @@ private extension SquirrelView {
       }
     }
 
-    CATransaction.begin()
-    CATransaction.setDisableActions(true)
+    self.effectiveAppearance.performAsCurrentDrawingAppearance {
+      CATransaction.begin()
+      CATransaction.setDisableActions(true)
 
     let root = ensureGridRootLayer()
     root.frame = self.bounds
@@ -1281,7 +1282,8 @@ private extension SquirrelView {
       gridShadowLayer.backgroundColor = NSColor.clear.cgColor
       gridShadowLayer.shadowOpacity = 0
       applyBoxRect(targetCardRect, from: fromCardRect, to: gridShadowLayer, cornerRadius: cardCornerRadius, animated: shouldAnimate && sizeChanged, useEaseOut: useSmoothEase)
-      let tint = theme.backgroundColor.alphaComponent < 0.99
+      let bgAlpha = theme.backgroundColor.usingColorSpace(.sRGB)?.alphaComponent ?? 1.0
+      let tint = bgAlpha < 0.99
         ? theme.backgroundColor
         : theme.backgroundColor.withAlphaComponent(isDark ? 0.16 : 0.20)
       gridCardClipLayer.backgroundColor = tint.cgColor
@@ -1456,7 +1458,8 @@ private extension SquirrelView {
       gridChevronLayer.isHidden = true
     }
 
-    CATransaction.commit()
+      CATransaction.commit()
+    }
 
     if shouldAnimate && expandChanged && lastGridViewportTopRow == 0 && layout.viewportTopRow == 0 {
       let prevRow0ByIndex = Dictionary(uniqueKeysWithValues: lastGridRow0Cells.map { ($0.globalIndex, $0.frame.minX) })
