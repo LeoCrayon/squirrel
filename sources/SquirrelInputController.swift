@@ -343,17 +343,34 @@ final class SquirrelInputController: IMKInputController {
 
   func toggleGridExpanded() {
     guard let panel = NSApp.squirrelAppDelegate.panel, panel.isExpandableGridEnabled, !gridCandidates.isEmpty else { return }
+    let currentGlobalIndex = gridCurrentLayout.map { $0.allRows[$0.activeRow].cells[$0.activeCellIndexInRow].globalIndex }
     if isGridExpanded {
       isGridExpanded = false
       gridActiveRow = 0
-      gridActiveCellIndex = 0
-      gridPreferredCenterX = nil
       gridViewportTopRow = 0
+      gridPreferredCenterX = nil
+      if let layout = rebuildGridLayout(panel: panel),
+         let target = currentGlobalIndex,
+         let pos = locateGridCandidate(target, in: layout),
+         pos.row == 0 {
+        gridActiveCellIndex = pos.cell
+      } else {
+        gridActiveCellIndex = 0
+      }
       syncGridHighlightAndRefresh()
     } else {
       isGridExpanded = true
       let targetCount = max(gridCandidates.count, (panel.gridVisibleRowsConfig + 4) * effectiveGridMaxColumns(panel))
       fetchGridCandidates(minCount: targetCount)
+      if let layout = rebuildGridLayout(panel: panel),
+         let target = currentGlobalIndex,
+         let pos = locateGridCandidate(target, in: layout) {
+        gridActiveRow = pos.row
+        gridActiveCellIndex = pos.cell
+        let cell = layout.allRows[pos.row].cells[pos.cell]
+        gridPreferredCenterX = cell.xOffset + cell.width / 2
+        updateGridViewport(totalRows: layout.allRows.count, panel: panel)
+      }
       syncGridHighlightAndRefresh()
     }
   }
@@ -812,6 +829,15 @@ private extension SquirrelInputController {
     }
   }
 
+  func locateGridCandidate(_ globalIndex: Int, in layout: SquirrelGridLayout) -> (row: Int, cell: Int)? {
+    for row in layout.allRows {
+      if let cellIdx = row.cells.firstIndex(where: { $0.globalIndex == globalIndex }) {
+        return (row.rowIndex, cellIdx)
+      }
+    }
+    return nil
+  }
+
   func cellIndexInRow(_ row: SquirrelGridRow, matchingCenterX targetX: CGFloat?) -> Int {
     guard let targetX, !row.cells.isEmpty else { return 0 }
     var bestIdx = 0
@@ -829,13 +855,14 @@ private extension SquirrelInputController {
 
   func updateGridViewport(totalRows: Int, panel: SquirrelPanel) {
     let visibleRows = max(1, panel.gridVisibleRowsConfig)
-    let bottomMargin = min(panel.gridBottomMarginConfig, max(0, visibleRows - 1))
-    let triggerRowInViewport = max(0, visibleRows - 1 - bottomMargin)
-    if gridActiveRow - gridViewportTopRow > triggerRowInViewport {
-      gridViewportTopRow = gridActiveRow - triggerRowInViewport
+    let bottomMargin = min(max(0, panel.gridBottomMarginConfig), max(0, visibleRows - 1))
+    let maxVisualRow = max(0, visibleRows - 1 - bottomMargin)
+    let topMargin = min(max(0, panel.gridTopMarginConfig), maxVisualRow)
+    if gridActiveRow - gridViewportTopRow > maxVisualRow {
+      gridViewportTopRow = gridActiveRow - maxVisualRow
     }
-    if gridActiveRow < gridViewportTopRow {
-      gridViewportTopRow = gridActiveRow
+    if gridActiveRow - gridViewportTopRow < topMargin {
+      gridViewportTopRow = gridActiveRow - topMargin
     }
     let maxTopRow = max(0, totalRows - visibleRows)
     gridViewportTopRow = max(0, min(gridViewportTopRow, maxTopRow))
@@ -980,12 +1007,20 @@ private extension SquirrelInputController {
         gridPreferredCenterX = nextCell.xOffset + nextCell.width / 2
         syncGridHighlightAndRefresh()
       } else if gridActiveRow + 1 < initialLayout.allRows.count || gridHasMore {
+        let nextGlobalIndex = curRow.cells[gridActiveCellIndex].globalIndex + 1
         if !isGridExpanded {
           isGridExpanded = true
         }
         ensureRowsLoaded(throughRow: gridActiveRow + panel.gridVisibleRowsConfig + 2, maxCols: maxCols)
         guard let layout = rebuildGridLayout(panel: panel) else { return true }
-        if gridActiveRow + 1 < layout.allRows.count {
+        if let pos = locateGridCandidate(nextGlobalIndex, in: layout) {
+          gridActiveRow = pos.row
+          gridActiveCellIndex = pos.cell
+          let nextCell = layout.allRows[pos.row].cells[pos.cell]
+          gridPreferredCenterX = nextCell.xOffset + nextCell.width / 2
+          updateGridViewport(totalRows: layout.allRows.count, panel: panel)
+          syncGridHighlightAndRefresh()
+        } else if gridActiveRow + 1 < layout.allRows.count {
           gridActiveRow += 1
           gridActiveCellIndex = 0
           let nextCell = layout.allRows[gridActiveRow].cells[0]

@@ -92,6 +92,41 @@ enum SquirrelGridResizeAnchor {
   case bottom
 }
 
+struct SquirrelGridCellTransitionSpec {
+  let cell: SquirrelGridCell
+  let fromDeltaX: CGFloat
+  let fadeIn: Bool
+}
+
+private final class FlippedClipView: NSView {
+  override var isFlipped: Bool { true }
+}
+
+private final class SquirrelGridTransitionCellView: NSView {
+  override var isFlipped: Bool { true }
+  let attributedString: NSAttributedString
+  let cellPaddingX: CGFloat
+
+  init(frame: NSRect, attributedString: NSAttributedString, cellPaddingX: CGFloat) {
+    self.attributedString = attributedString
+    self.cellPaddingX = cellPaddingX
+    super.init(frame: frame)
+    self.wantsLayer = true
+  }
+
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  override func draw(_ dirtyRect: NSRect) {
+    let textW = max(0, bounds.width - cellPaddingX * 2)
+    let strSize = attributedString.size()
+    let centeredY = max(0, (bounds.height - strSize.height) / 2)
+    let drawRect = NSRect(x: cellPaddingX, y: centeredY, width: textW, height: strSize.height)
+    attributedString.draw(with: drawRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+  }
+}
+
 final class SquirrelGridOverlayView: NSView {
   override var isFlipped: Bool {
     true
@@ -105,6 +140,95 @@ final class SquirrelGridOverlayView: NSView {
     layer.cornerCurve = .continuous
     return layer
   }()
+  private var hiddenTransitionGlobalIndices = Set<Int>()
+  private var transitionClipView: FlippedClipView?
+  private var transitionCleanupWorkItem: DispatchWorkItem?
+  private var transitionGeneration: Int = 0
+
+  func clearCellTransitions(redrawImmediately: Bool = false) {
+    transitionGeneration &+= 1
+    transitionCleanupWorkItem?.cancel()
+    transitionCleanupWorkItem = nil
+    let hadHidden = !hiddenTransitionGlobalIndices.isEmpty
+    let hadClip = transitionClipView != nil
+    guard hadHidden || hadClip else { return }
+
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    hiddenTransitionGlobalIndices.removeAll()
+    transitionClipView?.removeFromSuperview()
+    transitionClipView = nil
+    if hadHidden {
+      needsDisplay = true
+      if redrawImmediately {
+        displayIfNeeded()
+      }
+    }
+    CATransaction.commit()
+  }
+
+  func runCellTransitions(_ specs: [SquirrelGridCellTransitionSpec], clipRect: NSRect, cellPaddingX: CGFloat) {
+    clearCellTransitions()
+    guard !specs.isEmpty, !clipRect.isEmpty else { return }
+
+    let clipView = FlippedClipView(frame: clipRect)
+    clipView.wantsLayer = true
+    clipView.layer?.masksToBounds = true
+    addSubview(clipView)
+    transitionClipView = clipView
+
+    var hidden = Set<Int>()
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+
+    for spec in specs {
+      hidden.insert(spec.cell.globalIndex)
+      let cellFrame = spec.cell.frame.offsetBy(dx: -clipRect.minX, dy: -clipRect.minY)
+      let cellView = SquirrelGridTransitionCellView(
+        frame: cellFrame,
+        attributedString: spec.cell.attributedString,
+        cellPaddingX: cellPaddingX
+      )
+      clipView.addSubview(cellView)
+      cellView.displayIfNeeded()
+
+      if let layer = cellView.layer {
+        layer.transform = CATransform3DIdentity
+        layer.opacity = 1.0
+
+        if abs(spec.fromDeltaX) > 0.5 {
+          let slide = CASpringAnimation(keyPath: "transform.translation.x")
+          slide.fromValue = spec.fromDeltaX
+          slide.toValue = 0
+          slide.stiffness = 480
+          slide.damping = 36
+          slide.mass = 0.85
+          slide.duration = slide.settlingDuration
+          layer.add(slide, forKey: "reflowSlideX")
+        }
+
+        if spec.fadeIn {
+          let fade = CABasicAnimation(keyPath: "opacity")
+          fade.fromValue = 0.0
+          fade.toValue = 1.0
+          fade.duration = 0.16
+          fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+          layer.add(fade, forKey: "reflowFadeIn")
+        }
+      }
+    }
+
+    CATransaction.commit()
+
+    hiddenTransitionGlobalIndices = hidden
+    let gen = transitionGeneration
+    let workItem = DispatchWorkItem { [weak self] in
+      guard let self, self.transitionGeneration == gen else { return }
+      self.clearCellTransitions(redrawImmediately: true)
+    }
+    transitionCleanupWorkItem = workItem
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.28, execute: workItem)
+  }
 
   override func draw(_ dirtyRect: NSRect) {
     guard let layout = gridLayout else { return }
@@ -124,6 +248,9 @@ final class SquirrelGridOverlayView: NSView {
 
     for row in layout.visibleRows {
       for cell in row.cells {
+        if hiddenTransitionGlobalIndices.contains(cell.globalIndex) {
+          continue
+        }
         let textRect = NSRect(
           x: cell.frame.minX + layout.cellPaddingX,
           y: cell.frame.minY,
@@ -172,6 +299,7 @@ final class SquirrelView: NSView {
   private var lastGridExpanded = false
   private var lastGridViewportTopRow = 0
   private var lastGridCardSize: NSSize = .zero
+  private var lastGridRow0Cells: [SquirrelGridCell] = []
 
   private let squirrelLayoutDelegate: SquirrelLayoutDelegate
   var candidateRanges: [NSRange] = []
@@ -209,6 +337,7 @@ final class SquirrelView: NSView {
     textView.textLayoutManager?.delegate = squirrelLayoutDelegate
     gridOverlayView = SquirrelGridOverlayView(frame: frameRect)
     gridOverlayView.wantsLayer = true
+    gridOverlayView.layerContentsRedrawPolicy = .onSetNeedsDisplay
     gridOverlayView.isHidden = true
     super.init(frame: frameRect)
     textContainer.lineFragmentPadding = 0
@@ -291,6 +420,8 @@ final class SquirrelView: NSView {
     lastGridExpanded = false
     lastGridViewportTopRow = 0
     lastGridCardSize = .zero
+    lastGridRow0Cells = []
+    gridOverlayView.clearCellTransitions()
   }
 
   func drawGrid(_ layout: SquirrelGridLayout, resizeAnchor: SquirrelGridResizeAnchor = .top) {
@@ -299,8 +430,10 @@ final class SquirrelView: NSView {
     self.gridOverlayView.theme = currentTheme
     self.textView.isHidden = true
     self.gridOverlayView.isHidden = false
+    self.gridOverlayView.clearCellTransitions(redrawImmediately: false)
     updateGridLayers(layout, resizeAnchor: resizeAnchor)
     self.gridOverlayView.needsDisplay = true
+    self.gridOverlayView.displayIfNeeded()
   }
 
   func gridHitTest(at point: NSPoint) -> SquirrelGridHitResult {
@@ -1086,7 +1219,6 @@ private extension SquirrelView {
 
     let shouldAnimate = theme.gridAnimation && (lastGridCompositionID == layout.compositionID)
     let expandChanged = layout.isExpanded != lastGridExpanded
-    let scrolledChanged = layout.viewportTopRow != lastGridViewportTopRow
     let sizeChanged = lastGridCardSize != .zero && lastGridCardSize != layout.panelSize
 
     var fromCardRect: NSRect?
@@ -1129,17 +1261,29 @@ private extension SquirrelView {
     applyBoxRect(targetCardRect, from: fromCardRect, to: gridCardClipLayer, cornerRadius: theme.cornerRadius, animated: shouldAnimate && sizeChanged)
 
     if let overlayLayer = gridOverlayView.layer {
-      overlayLayer.mask = gridOverlayView.gridTextMaskLayer
-      let targetMaskRect = NSRect(origin: .zero, size: layout.panelSize)
-      let fromMaskRect = fromCardRect.map {
-        NSRect(
-          x: $0.minX - gridContentOrigin.x,
-          y: $0.minY - gridContentOrigin.y,
-          width: $0.width,
-          height: $0.height
-        )
+      overlayLayer.removeAnimation(forKey: "gridTextFade")
+      overlayLayer.opacity = 1.0
+      if shouldAnimate && sizeChanged {
+        if overlayLayer.mask !== gridOverlayView.gridTextMaskLayer {
+          overlayLayer.mask = gridOverlayView.gridTextMaskLayer
+        }
+        let targetMaskRect = NSRect(origin: .zero, size: layout.panelSize)
+        let fromMaskRect = fromCardRect.map {
+          NSRect(
+            x: $0.minX - gridContentOrigin.x,
+            y: $0.minY - gridContentOrigin.y,
+            width: $0.width,
+            height: $0.height
+          )
+        }
+        applyBoxRect(targetMaskRect, from: fromMaskRect, to: gridOverlayView.gridTextMaskLayer, cornerRadius: theme.cornerRadius, animated: true)
+      } else {
+        gridOverlayView.gridTextMaskLayer.removeAnimation(forKey: "position")
+        gridOverlayView.gridTextMaskLayer.removeAnimation(forKey: "bounds")
+        if overlayLayer.mask != nil {
+          overlayLayer.mask = nil
+        }
       }
-      applyBoxRect(targetMaskRect, from: fromMaskRect, to: gridOverlayView.gridTextMaskLayer, cornerRadius: theme.cornerRadius, animated: shouldAnimate && sizeChanged)
     }
 
     if !layout.preeditRect.isEmpty, let color = theme.preeditBackgroundColor {
@@ -1269,20 +1413,53 @@ private extension SquirrelView {
       gridChevronLayer.isHidden = true
     }
 
-    if shouldAnimate && scrolledChanged && !expandChanged, let overlayLayer = gridOverlayView.layer {
-      let fade = CABasicAnimation(keyPath: "opacity")
-      fade.fromValue = 0.65
-      fade.toValue = 1.0
-      fade.duration = 0.10
-      fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
-      overlayLayer.add(fade, forKey: "gridTextFade")
-    }
-
     CATransaction.commit()
+
+    if shouldAnimate && expandChanged && lastGridViewportTopRow == 0 && layout.viewportTopRow == 0 {
+      let prevRow0ByIndex = Dictionary(uniqueKeysWithValues: lastGridRow0Cells.map { ($0.globalIndex, $0.frame.minX) })
+      var specs = [SquirrelGridCellTransitionSpec]()
+
+      if layout.isExpanded {
+        let newRow0Cells = layout.visibleRows.first?.cells ?? []
+        let row0PushedDown = lastGridRow0Cells.count > newRow0Cells.count
+
+        for cell in newRow0Cells {
+          if let prevX = prevRow0ByIndex[cell.globalIndex] {
+            let dx = prevX - cell.frame.minX
+            if abs(dx) > 1.0 {
+              specs.append(SquirrelGridCellTransitionSpec(cell: cell, fromDeltaX: dx, fadeIn: false))
+            }
+          }
+        }
+
+        if row0PushedDown && layout.visibleRows.count > 1 {
+          for cell in layout.visibleRows[1].cells {
+            specs.append(SquirrelGridCellTransitionSpec(cell: cell, fromDeltaX: -24.0, fadeIn: true))
+          }
+        }
+      } else {
+        let newRow0Cells = layout.visibleRows.first?.cells ?? []
+        for cell in newRow0Cells {
+          if let prevX = prevRow0ByIndex[cell.globalIndex] {
+            let dx = prevX - cell.frame.minX
+            if abs(dx) > 1.0 {
+              specs.append(SquirrelGridCellTransitionSpec(cell: cell, fromDeltaX: dx, fadeIn: false))
+            }
+          } else {
+            specs.append(SquirrelGridCellTransitionSpec(cell: cell, fromDeltaX: 24.0, fadeIn: true))
+          }
+        }
+      }
+
+      if !specs.isEmpty {
+        gridOverlayView.runCellTransitions(specs, clipRect: layout.gridContentRect, cellPaddingX: layout.cellPaddingX)
+      }
+    }
 
     lastGridCompositionID = layout.compositionID
     lastGridExpanded = layout.isExpanded
     lastGridViewportTopRow = layout.viewportTopRow
     lastGridCardSize = layout.panelSize
+    lastGridRow0Cells = layout.viewportTopRow == 0 ? (layout.visibleRows.first?.cells ?? []) : []
   }
 }

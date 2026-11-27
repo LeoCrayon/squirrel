@@ -76,8 +76,10 @@ final class SquirrelTheme {
   private(set) var gridAnimation = true
   private(set) var gridMaxColumns: Int = 0
   private(set) var gridExpandedColumns: Int = 0
+  private(set) var gridWidth: CGFloat = 0 // 0 = auto (width of 9 single-char CJK candidates)
   private(set) var gridVisibleRows: Int = 5
-  private(set) var gridBottomMarginRows: Int = 2
+  private(set) var gridTopMarginRows: Int = 1
+  private(set) var gridBottomMarginRows: Int = 1
   private(set) var gridRowStyle: GridRowStyle = .native
   private(set) var gridRowBorderColor: NSColor?
 
@@ -241,7 +243,9 @@ final class SquirrelTheme {
     gridAnimation ?= config.getBool("style/grid_animation")
     gridMaxColumns ?= config.getInt("style/grid_max_columns").map { max(0, $0) }
     gridExpandedColumns ?= config.getInt("style/grid_expanded_columns").map { max(0, $0) }
+    gridWidth ?= config.getDouble("style/grid_width").map { max(0, $0) }
     gridVisibleRows ?= config.getInt("style/grid_visible_rows").map { max(1, $0) }
+    gridTopMarginRows ?= config.getInt("style/grid_top_margin_rows").map { max(0, $0) }
     gridBottomMarginRows ?= config.getInt("style/grid_bottom_margin_rows").map { max(0, $0) }
     gridRowStyle ?= .init(rawValue: config.getString("style/grid_row_style") ?? "")
 
@@ -305,7 +309,9 @@ final class SquirrelTheme {
         gridAnimation ?= config.getBool("\(prefix)/grid_animation")
         gridMaxColumns ?= config.getInt("\(prefix)/grid_max_columns").map { max(0, $0) }
         gridExpandedColumns ?= config.getInt("\(prefix)/grid_expanded_columns").map { max(0, $0) }
+        gridWidth ?= config.getDouble("\(prefix)/grid_width").map { max(0, $0) }
         gridVisibleRows ?= config.getInt("\(prefix)/grid_visible_rows").map { max(1, $0) }
+        gridTopMarginRows ?= config.getInt("\(prefix)/grid_top_margin_rows").map { max(0, $0) }
         gridBottomMarginRows ?= config.getInt("\(prefix)/grid_bottom_margin_rows").map { max(0, $0) }
         gridRowStyle ?= .init(rawValue: config.getString("\(prefix)/grid_row_style") ?? "")
         candidateFormat ?= config.getString("\(prefix)/candidate_format")

@@ -79,6 +79,9 @@ final class SquirrelPanel: NSPanel {
   var gridVisibleRowsConfig: Int {
     view.currentTheme.gridVisibleRows
   }
+  var gridTopMarginConfig: Int {
+    view.currentTheme.gridTopMarginRows
+  }
   var gridBottomMarginConfig: Int {
     view.currentTheme.gridBottomMarginRows
   }
@@ -373,10 +376,10 @@ final class SquirrelPanel: NSPanel {
     let cellPadY: CGFloat = 2.5
     let colGap: CGFloat = 2
     let rowGap: CGFloat = isExpanded ? max(theme.linespace, 5) : max(theme.linespace, 3)
-    let rowBorderInset: CGFloat = (isExpanded && theme.gridRowStyle == .border) ? 1.5 : 0
-    let showChevron = hasMore || candidates.count > 1
-    let expandButtonWidth: CGFloat = showChevron ? 20 : 0
-    let maxRowWidth = max(240, screenRect.width * 0.85 - outerPadX * 2 - expandButtonWidth - rowBorderInset * 2)
+    let rowBorderInsetX: CGFloat = theme.gridRowStyle == .border ? 1.5 : 0
+    let rowBorderInsetY: CGFloat = (isExpanded && theme.gridRowStyle == .border) ? 1.5 : 0
+    let chevronSlotWidth: CGFloat = 20
+    let maxRowWidth = max(240, screenRect.width * 0.85 - outerPadX * 2 - chevronSlotWidth - rowBorderInsetX * 2)
 
     let singleLineStyle = NSMutableParagraphStyle()
     singleLineStyle.lineBreakMode = .byTruncatingTail
@@ -434,7 +437,32 @@ final class SquirrelPanel: NSPanel {
       return line
     }
 
-    // 1. Pack collapsed Row 0 strictly on a single line (at least 1 candidate, at most effectiveMaxCols).
+    // Compute reference widths and fixed panel width (default: 9 single-char CJK candidates).
+    let singleCharSample = formatCell(
+      candidate: SquirrelGridCandidate(globalIndex: -1, text: "啊", comment: ""),
+      slot: 7,
+      showLabel: true,
+      isHighlighted: false
+    )
+    let singleCharRefW = ceil(singleCharSample.size().width) + cellPadX * 2
+    let twoCharSample = formatCell(
+      candidate: SquirrelGridCandidate(globalIndex: -1, text: "设定", comment: ""),
+      slot: 7,
+      showLabel: true,
+      isHighlighted: false
+    )
+    let unitRefW = ceil(twoCharSample.size().width) + cellPadX * 2
+
+    let defaultTargetWidth = singleCharRefW * 9 + colGap * 8
+    let targetGridWidth: CGFloat
+    if theme.gridWidth > 0 {
+      let requestedContentWidth = theme.gridWidth - outerPadX * 2 - chevronSlotWidth - rowBorderInsetX * 2
+      targetGridWidth = min(maxRowWidth, max(unitRefW * 2 + colGap, requestedContentWidth))
+    } else {
+      targetGridWidth = min(maxRowWidth, defaultTargetWidth)
+    }
+
+    // 1. Pack collapsed Row 0 strictly on a single line within targetGridWidth (at least 1 candidate, at most effectiveMaxCols).
     var collapsedRow0Cells = [SquirrelGridCell]()
     var collapsedColWidths = [CGFloat]()
     var collapsedColOriginsX = [CGFloat]()
@@ -450,7 +478,7 @@ final class SquirrelPanel: NSPanel {
       }
       let cellX = idx == 0 ? 0 : (accWidth + colGap)
       let nextAcc = cellX + cellW
-      if idx > 0 && nextAcc > maxRowWidth {
+      if idx > 0 && nextAcc > targetGridWidth + 0.5 {
         break
       }
       accWidth = nextAcc
@@ -470,6 +498,8 @@ final class SquirrelPanel: NSPanel {
     }
 
     let collapsedGridWidth = max(1, accWidth)
+    let fixedGridWidth = min(maxRowWidth, max(targetGridWidth, collapsedGridWidth))
+    let showChevron = isExpanded || hasMore || candidates.count > collapsedRow0Cells.count
     var colWidths = collapsedColWidths
     var colOriginsX = collapsedColOriginsX
     var allRows = [SquirrelGridRow]()
@@ -489,29 +519,20 @@ final class SquirrelPanel: NSPanel {
             text: extra.text,
             comment: extra.comment,
             xOffset: 0,
-            width: collapsedGridWidth
+            width: fixedGridWidth
           )
         ]))
       }
-      totalGridWidth = collapsedGridWidth
+      totalGridWidth = fixedGridWidth
     } else {
-      // 2. Expanded Apple-native uniform equal-slot grid (default 6 equal slots, 1/6 for 1-2 CJK or short English, 2/6 for 3-4 CJK).
-      let twoCharSample = formatCell(
-        candidate: SquirrelGridCandidate(globalIndex: -1, text: "设定", comment: ""),
-        slot: 7,
-        showLabel: true,
-        isHighlighted: false
-      )
-      let unitRefW = ceil(twoCharSample.size().width) + cellPadX * 2
-      let defaultBaseCols = min(effectiveMaxCols, 6)
-      let minExpandedWidth = unitRefW * CGFloat(defaultBaseCols) + colGap * CGFloat(max(0, defaultBaseCols - 1))
-      let expandedGridWidth = min(maxRowWidth, max(collapsedGridWidth, minExpandedWidth))
+      // 2. Expanded Apple-native uniform equal-slot grid using the same fixedGridWidth.
+      let expandedGridWidth = fixedGridWidth
       let baseCols: Int
       if theme.gridExpandedColumns > 0 {
         baseCols = min(effectiveMaxCols, theme.gridExpandedColumns)
       } else {
-        let fitCols = Int(floor((expandedGridWidth + colGap) / (unitRefW + colGap)))
-        baseCols = min(effectiveMaxCols, max(defaultBaseCols, fitCols))
+        let fitCols = max(1, Int(floor((expandedGridWidth + colGap) / (unitRefW + colGap))))
+        baseCols = min(effectiveMaxCols, fitCols)
       }
       let slotWidth = (expandedGridWidth - colGap * CGFloat(max(0, baseCols - 1))) / CGFloat(max(1, baseCols))
       colWidths = Array(repeating: slotWidth, count: baseCols)
@@ -531,7 +552,7 @@ final class SquirrelPanel: NSPanel {
         let naturalW = ceil(max(sampleAttr.size().width, wideLabelAttr.size().width)) + cellPadX * 2
 
         var chosenSpan = baseCols
-        for span in 1...baseCols where slotSpanWidth(span) + 2.0 >= naturalW {
+        for span in 1...baseCols where slotSpanWidth(span) >= naturalW + 1.0 {
           chosenSpan = span
           break
         }
@@ -564,7 +585,7 @@ final class SquirrelPanel: NSPanel {
           let flushedSample = formatCell(candidate: cand, slot: 0, showLabel: true, isHighlighted: false)
           let flushedW = ceil(max(flushedSample.size().width, wideLabelAttr.size().width)) + cellPadX * 2
           chosenSpan = baseCols
-          for span in 1...baseCols where slotSpanWidth(span) + 2.0 >= flushedW {
+          for span in 1...baseCols where slotSpanWidth(span) >= flushedW + 1.0 {
             chosenSpan = span
             break
           }
@@ -639,8 +660,8 @@ final class SquirrelPanel: NSPanel {
     let sampleTextHeight = ceil(("中A" as NSString).size(withAttributes: theme.attrs).height)
     let rowHeight = max(sampleTextHeight, ceil(theme.font.ascender - theme.font.descender)) + cellPadY * 2
 
-    let gridStartX = outerPadX + rowBorderInset
-    let gridStartY = contentY + rowBorderInset
+    let gridStartX = outerPadX + rowBorderInsetX
+    let gridStartY = contentY + rowBorderInsetY
     var visibleRows = [SquirrelGridRow]()
     var activeRowRect = NSRect.zero
     var activeCellRect = NSRect.zero
@@ -674,7 +695,7 @@ final class SquirrelPanel: NSPanel {
       }
 
       if isRowActive {
-        activeRowRect = row.frame.insetBy(dx: -rowBorderInset, dy: -1.0)
+        activeRowRect = row.frame.insetBy(dx: -rowBorderInsetX, dy: -1.0)
       }
       visibleRows.append(row)
     }
@@ -697,16 +718,16 @@ final class SquirrelPanel: NSPanel {
     )
 
     let chevronDividerRect: NSRect? = showChevron ? NSRect(
-      x: gridContentRect.maxX + rowBorderInset + 2,
+      x: gridContentRect.maxX + rowBorderInsetX + 2,
       y: gridStartY + 4,
       width: 1,
       height: max(8, rowHeight - 8)
     ) : nil
 
     let expandButtonRect: NSRect? = showChevron ? NSRect(
-      x: gridContentRect.maxX + rowBorderInset + 3,
+      x: gridContentRect.maxX + rowBorderInsetX + 3,
       y: gridStartY,
-      width: expandButtonWidth - 3,
+      width: chevronSlotWidth - 3,
       height: rowHeight
     ) : nil
 
@@ -714,7 +735,7 @@ final class SquirrelPanel: NSPanel {
     var scrollbarTrackRect: NSRect?
     var scrollbarThumbRect: NSRect?
     if isScrollable {
-      let trackX = (expandButtonRect?.midX ?? (gridContentRect.maxX + rowBorderInset + 6)) - 2
+      let trackX = (expandButtonRect?.midX ?? (gridContentRect.maxX + rowBorderInsetX + 6)) - 2
       let trackY = gridContentRect.minY + (showChevron ? rowHeight + rowGap : 0)
       let trackH = max(20, gridContentRect.maxY - trackY)
       let trackRect = NSRect(x: trackX, y: trackY, width: 4, height: trackH)
@@ -729,11 +750,11 @@ final class SquirrelPanel: NSPanel {
 
     let rightEdge = max(
       preeditRect.maxX,
-      gridContentRect.maxX + rowBorderInset + expandButtonWidth
+      gridContentRect.maxX + rowBorderInsetX + chevronSlotWidth
     )
     let panelSize = NSSize(
       width: rightEdge + outerPadX,
-      height: gridContentRect.maxY + rowBorderInset + outerPadY
+      height: gridContentRect.maxY + rowBorderInsetY + outerPadY
     )
 
     return SquirrelGridLayout(
@@ -1027,10 +1048,11 @@ private extension SquirrelPanel {
     gridCollapseResizeWorkItem = nil
     currentScreen()
     let theme = view.currentTheme
-    if theme.native || view.darkTheme.available {
-      self.appearance = NSApp.effectiveAppearance
-    } else {
-      self.appearance = NSAppearance(named: .aqua)
+    let targetAppearance: NSAppearance? = (theme.native || view.darkTheme.available)
+      ? NSApp.effectiveAppearance
+      : NSAppearance(named: .aqua)
+    if self.appearance?.name != targetAppearance?.name {
+      self.appearance = targetAppearance
     }
 
     let boundsRect = visibleScreenRect.isEmpty ? screenRect : visibleScreenRect
@@ -1055,8 +1077,29 @@ private extension SquirrelPanel {
     let targetWindowFrame = cardScreenRect.insetBy(dx: -pad, dy: -pad)
     let resizeAnchor: SquirrelGridResizeAnchor = isAboveCursor ? .bottom : .top
 
-    self.hasShadow = false
+    if self.hasShadow {
+      self.hasShadow = false
+    }
     view.gridContentOrigin = NSPoint(x: pad, y: pad)
+
+    func applyContainerGeometry(windowBounds: NSRect, overlayOrigin: NSPoint, overlaySize: NSSize) {
+      if let content = contentView {
+        if content.frame != windowBounds { content.frame = windowBounds }
+        if content.bounds != windowBounds { content.bounds = windowBounds }
+        if content.boundsRotation != 0 { content.boundsRotation = 0 }
+        if content.bounds.origin != .zero { content.setBoundsOrigin(.zero) }
+      }
+      if view.frame != windowBounds {
+        view.frame = windowBounds
+      }
+      let overlayFrame = NSRect(origin: overlayOrigin, size: overlaySize)
+      if view.gridOverlayView.frame != overlayFrame {
+        view.gridOverlayView.frame = overlayFrame
+      }
+    }
+
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
 
     if isShrinkingBelowCursor {
       let tempHeight = max(targetWindowFrame.height, self.frame.height)
@@ -1067,53 +1110,59 @@ private extension SquirrelPanel {
         width: tempWidth,
         height: tempHeight
       )
-      self.setFrame(tempWindowFrame, display: true)
+      if self.frame != tempWindowFrame {
+        self.setFrame(tempWindowFrame, display: false)
+      }
       let tempBounds = NSRect(origin: .zero, size: tempWindowFrame.size)
-      contentView!.frame = tempBounds
-      contentView!.bounds = tempBounds
-      contentView!.boundsRotation = 0
-      contentView!.setBoundsOrigin(.zero)
-      view.frame = tempBounds
       let overlayY = tempBounds.height - pad - layout.panelSize.height
-      view.gridOverlayView.frame = NSRect(origin: NSPoint(x: pad, y: overlayY), size: layout.panelSize)
+      applyContainerGeometry(windowBounds: tempBounds, overlayOrigin: NSPoint(x: pad, y: overlayY), overlaySize: layout.panelSize)
       view.drawGrid(layout, resizeAnchor: .top)
 
       let workItem = DispatchWorkItem { [weak self] in
         guard let self, self.view.gridLayout?.compositionID == layout.compositionID else { return }
-        self.setFrame(targetWindowFrame, display: true)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if self.frame != targetWindowFrame {
+          self.setFrame(targetWindowFrame, display: false)
+        }
         let finalBounds = NSRect(origin: .zero, size: targetWindowFrame.size)
-        self.contentView?.frame = finalBounds
-        self.contentView?.bounds = finalBounds
-        self.view.frame = finalBounds
-        self.view.gridOverlayView.frame = NSRect(origin: NSPoint(x: pad, y: pad), size: layout.panelSize)
+        if let content = self.contentView {
+          if content.frame != finalBounds { content.frame = finalBounds }
+          if content.bounds != finalBounds { content.bounds = finalBounds }
+        }
+        if self.view.frame != finalBounds {
+          self.view.frame = finalBounds
+        }
+        let finalOverlayFrame = NSRect(origin: NSPoint(x: pad, y: pad), size: layout.panelSize)
+        if self.view.gridOverlayView.frame != finalOverlayFrame {
+          self.view.gridOverlayView.frame = finalOverlayFrame
+        }
+        self.view.gridOverlayView.layer?.mask = nil
+        CATransaction.commit()
       }
       gridCollapseResizeWorkItem = workItem
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.20, execute: workItem)
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.28, execute: workItem)
     } else if animate && flippedSide {
       let targetBounds = NSRect(origin: .zero, size: targetWindowFrame.size)
-      contentView!.frame = targetBounds
-      contentView!.bounds = targetBounds
-      contentView!.boundsRotation = 0
-      contentView!.setBoundsOrigin(.zero)
-      view.frame = targetBounds
-      view.gridOverlayView.frame = NSRect(origin: NSPoint(x: pad, y: pad), size: layout.panelSize)
+      applyContainerGeometry(windowBounds: targetBounds, overlayOrigin: NSPoint(x: pad, y: pad), overlaySize: layout.panelSize)
       view.drawGrid(layout, resizeAnchor: resizeAnchor)
+    } else {
+      if self.frame != targetWindowFrame {
+        self.setFrame(targetWindowFrame, display: false)
+      }
+      let targetBounds = NSRect(origin: .zero, size: targetWindowFrame.size)
+      applyContainerGeometry(windowBounds: targetBounds, overlayOrigin: NSPoint(x: pad, y: pad), overlaySize: layout.panelSize)
+      view.drawGrid(layout, resizeAnchor: resizeAnchor)
+    }
 
+    CATransaction.commit()
+
+    if animate && flippedSide {
       NSAnimationContext.runAnimationGroup { ctx in
         ctx.duration = 0.16
         ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
-        self.animator().setFrame(targetWindowFrame, display: true)
+        self.animator().setFrame(targetWindowFrame, display: false)
       }
-    } else {
-      self.setFrame(targetWindowFrame, display: true)
-      let targetBounds = NSRect(origin: .zero, size: targetWindowFrame.size)
-      contentView!.frame = targetBounds
-      contentView!.bounds = targetBounds
-      contentView!.boundsRotation = 0
-      contentView!.setBoundsOrigin(.zero)
-      view.frame = targetBounds
-      view.gridOverlayView.frame = NSRect(origin: NSPoint(x: pad, y: pad), size: layout.panelSize)
-      view.drawGrid(layout, resizeAnchor: resizeAnchor)
     }
 
     if theme.translucency {
@@ -1121,10 +1170,17 @@ private extension SquirrelPanel {
       back.layer?.cornerRadius = theme.cornerRadius
       back.layer?.cornerCurve = .continuous
       back.layer?.masksToBounds = true
-      back.frame = NSRect(x: pad, y: pad, width: layout.panelSize.width, height: layout.panelSize.height)
-      back.appearance = NSApp.effectiveAppearance
-      back.isHidden = false
-    } else {
+      let backFrame = NSRect(x: pad, y: pad, width: layout.panelSize.width, height: layout.panelSize.height)
+      if back.frame != backFrame {
+        back.frame = backFrame
+      }
+      if back.appearance?.name != NSApp.effectiveAppearance.name {
+        back.appearance = NSApp.effectiveAppearance
+      }
+      if back.isHidden {
+        back.isHidden = false
+      }
+    } else if !back.isHidden {
       back.isHidden = true
     }
 
@@ -1132,8 +1188,12 @@ private extension SquirrelPanel {
     lastGridWasAboveCursor = isAboveCursor
     lastGridCompositionID = layout.compositionID
 
-    alphaValue = theme.alpha
-    orderFront(nil)
+    if self.alphaValue != theme.alpha {
+      alphaValue = theme.alpha
+    }
+    if !self.isVisible {
+      orderFront(nil)
+    }
   }
 
   func handleGridEvent(_ event: NSEvent) {
