@@ -14,6 +14,7 @@ final class SquirrelApplicationDelegate: NSObject, NSApplicationDelegate, SPUSta
   static let rimeWikiURL = URL(string: "https://github.com/rime/home/wiki")!
   static let updateNotificationIdentifier = "SquirrelUpdateNotification"
   static let notificationIdentifier = "SquirrelNotification"
+  static let enableAutoUpdate = false
 
   let rimeAPI: RimeApi_stdbool = rime_get_api_stdbool().pointee
   var config: SquirrelConfig?
@@ -21,7 +22,9 @@ final class SquirrelApplicationDelegate: NSObject, NSApplicationDelegate, SPUSta
   var enableNotifications = false
   var showStatusIcon: Bool = true
   var statusItem: NSStatusItem?
-  let updateController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
+  lazy var updateController: SPUStandardUpdaterController? = Self.enableAutoUpdate
+    ? SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+    : nil
   var supportsGentleScheduledUpdateReminders: Bool {
     true
   }
@@ -95,7 +98,12 @@ final class SquirrelApplicationDelegate: NSObject, NSApplicationDelegate, SPUSta
   }
 
   func checkForUpdates() {
-    print("Auto-update is disabled in this custom Squirrel build")
+    if Self.enableAutoUpdate, let updater = updateController?.updater, updater.canCheckForUpdates {
+      print("Checking for updates")
+      updater.checkForUpdates()
+    } else {
+      print("Auto-update is disabled in this custom Squirrel build")
+    }
   }
 
   func openWiki() {

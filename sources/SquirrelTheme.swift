@@ -231,7 +231,7 @@ final class SquirrelTheme {
     }
     return .controlAccentColor
   }
-  var resolvedGridColumnBackColor: NSColor {
+  var resolvedGridHoverBackColor: NSColor {
     (highlightedBackColor ?? .selectedTextBackgroundColor).withAlphaComponent(0.14)
   }
   var resolvedGridBackgroundStyle: GridBackgroundStyle {
@@ -257,7 +257,7 @@ final class SquirrelTheme {
     }
   }
 
-  func load(config: SquirrelConfig, dark: Bool) {
+  func load(config: SquirrelConfigReading, dark: Bool) {
     linear ?= config.getString("style/candidate_list_layout").map { $0 == "linear" }
     vertical ?= config.getString("style/text_orientation").map { $0 == "vertical" }
     inlinePreedit ?= config.getBool("style/inline_preedit")
@@ -424,14 +424,24 @@ private extension SquirrelTheme {
   }
 
   func blendColor(foregroundColor: NSColor, backgroundColor: NSColor?) -> NSColor {
-    let foregroundColor = foregroundColor.usingColorSpace(NSColorSpace.deviceRGB)!
-    let backgroundColor = (backgroundColor ?? NSColor.gray).usingColorSpace(NSColorSpace.deviceRGB)!
-    func blend(foreground: CGFloat, background: CGFloat) -> CGFloat {
-      return (foreground * 2 + background) / 3
+    NSColor(name: nil) { appearance in
+      var resolved = foregroundColor
+      appearance.performAsCurrentDrawingAppearance {
+        guard let fgColor = foregroundColor.usingColorSpace(.sRGB),
+              let bgColor = (backgroundColor ?? NSColor.gray).usingColorSpace(.sRGB) else {
+          return
+        }
+        func blend(foreground: CGFloat, background: CGFloat) -> CGFloat {
+          (foreground * 2 + background) / 3
+        }
+        resolved = NSColor(
+          srgbRed: blend(foreground: fgColor.redComponent, background: bgColor.redComponent),
+          green: blend(foreground: fgColor.greenComponent, background: bgColor.greenComponent),
+          blue: blend(foreground: fgColor.blueComponent, background: bgColor.blueComponent),
+          alpha: blend(foreground: fgColor.alphaComponent, background: bgColor.alphaComponent)
+        )
+      }
+      return resolved
     }
-    return NSColor(deviceRed: blend(foreground: foregroundColor.redComponent, background: backgroundColor.redComponent),
-                   green: blend(foreground: foregroundColor.greenComponent, background: backgroundColor.greenComponent),
-                   blue: blend(foreground: foregroundColor.blueComponent, background: backgroundColor.blueComponent),
-                   alpha: blend(foreground: foregroundColor.alphaComponent, background: backgroundColor.alphaComponent))
   }
 }
