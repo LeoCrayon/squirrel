@@ -40,6 +40,7 @@ struct SquirrelGridCell {
   var width: CGFloat = 0
   var frame: NSRect = .zero
   var attributedString: NSAttributedString = NSAttributedString()
+  var highlightedAttributedString: NSAttributedString = NSAttributedString()
 }
 
 struct SquirrelGridRow {
@@ -52,6 +53,7 @@ struct SquirrelGridLayout {
   let compositionID: Int
   let isExpanded: Bool
   let showColumnHighlight: Bool
+  let usePillTextMask: Bool
   let colWidths: [CGFloat]
   let colOriginsX: [CGFloat]
   let allRows: [SquirrelGridRow]
@@ -127,14 +129,25 @@ private final class SquirrelGridTransitionCellView: NSView {
   }
 }
 
+final class SquirrelGridPillView: NSView {
+  override var isFlipped: Bool { true }
+}
+
 final class SquirrelGridOverlayView: NSView {
   override var isFlipped: Bool {
     true
   }
 
+  var drawsHighlightedText: Bool = false
   var gridLayout: SquirrelGridLayout?
   var theme: SquirrelTheme = SquirrelTheme()
   lazy var gridTextMaskLayer: CALayer = {
+    let layer = CALayer()
+    layer.backgroundColor = NSColor.black.cgColor
+    layer.cornerCurve = .continuous
+    return layer
+  }()
+  lazy var gridActiveTextMaskLayer: CALayer = {
     let layer = CALayer()
     layer.backgroundColor = NSColor.black.cgColor
     layer.cornerCurve = .continuous
@@ -186,7 +199,7 @@ final class SquirrelGridOverlayView: NSView {
       let cellFrame = spec.cell.frame.offsetBy(dx: -clipRect.minX, dy: -clipRect.minY)
       let cellView = SquirrelGridTransitionCellView(
         frame: cellFrame,
-        attributedString: spec.cell.attributedString,
+        attributedString: drawsHighlightedText ? spec.cell.highlightedAttributedString : spec.cell.attributedString,
         cellPaddingX: cellPaddingX
       )
       clipView.addSubview(cellView)
@@ -233,16 +246,18 @@ final class SquirrelGridOverlayView: NSView {
   override func draw(_ dirtyRect: NSRect) {
     guard let layout = gridLayout else { return }
 
-    if let preeditAttr = layout.preeditAttributedString, !layout.preeditRect.isEmpty {
-      preeditAttr.draw(with: layout.preeditRect, options: [.usesLineFragmentOrigin])
-    }
+    if !drawsHighlightedText {
+      if let preeditAttr = layout.preeditAttributedString, !layout.preeditRect.isEmpty {
+        preeditAttr.draw(with: layout.preeditRect, options: [.usesLineFragmentOrigin])
+      }
 
-    if !layout.rowDividerRects.isEmpty {
-      let isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-      let dividerColor = NSColor.separatorColor.withAlphaComponent(isDark ? 0.24 : 0.16)
-      dividerColor.setFill()
-      for rect in layout.rowDividerRects {
-        rect.fill()
+      if !layout.rowDividerRects.isEmpty {
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let dividerColor = NSColor.separatorColor.withAlphaComponent(isDark ? 0.24 : 0.16)
+        dividerColor.setFill()
+        for rect in layout.rowDividerRects {
+          rect.fill()
+        }
       }
     }
 
@@ -251,20 +266,21 @@ final class SquirrelGridOverlayView: NSView {
         if hiddenTransitionGlobalIndices.contains(cell.globalIndex) {
           continue
         }
+        let attrStr = drawsHighlightedText ? cell.highlightedAttributedString : cell.attributedString
         let textRect = NSRect(
           x: cell.frame.minX + layout.cellPaddingX,
           y: cell.frame.minY,
           width: max(0, cell.frame.width - layout.cellPaddingX * 2),
           height: cell.frame.height
         )
-        let strSize = cell.attributedString.size()
+        let strSize = attrStr.size()
         let centeredY = textRect.minY + max(0, (textRect.height - strSize.height) / 2)
         let drawRect = NSRect(x: textRect.minX, y: centeredY, width: textRect.width, height: strSize.height)
-        cell.attributedString.draw(with: drawRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+        attrStr.draw(with: drawRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
       }
     }
 
-    if let trackRect = layout.scrollbarTrackRect, let thumbRect = layout.scrollbarThumbRect {
+    if !drawsHighlightedText, let trackRect = layout.scrollbarTrackRect, let thumbRect = layout.scrollbarThumbRect {
       let trackColor = NSColor.secondaryLabelColor.withAlphaComponent(0.12)
       trackColor.setFill()
       NSBezierPath(roundedRect: trackRect, xRadius: trackRect.width / 2, yRadius: trackRect.width / 2).fill()
@@ -281,6 +297,8 @@ final class SquirrelView: NSView {
 
   let textView: NSTextView
   let gridOverlayView: SquirrelGridOverlayView
+  let gridActivePillView: SquirrelGridPillView
+  let gridHighlightOverlayView: SquirrelGridOverlayView
   var gridLayout: SquirrelGridLayout?
   var gridContentOrigin = NSPoint(x: SquirrelView.gridShadowPadding, y: SquirrelView.gridShadowPadding)
 
@@ -292,6 +310,7 @@ final class SquirrelView: NSView {
   private lazy var gridColumnLayer = CALayer()
   private lazy var gridHoverLayer = CALayer()
   private lazy var gridActiveCellLayer = CALayer()
+  private lazy var gridFallbackActiveCellLayer = CALayer()
   private lazy var gridActiveRowBorderLayer = CALayer()
   private lazy var gridDividerLayer = CALayer()
   private lazy var gridChevronLayer = CAShapeLayer()
@@ -339,6 +358,14 @@ final class SquirrelView: NSView {
     gridOverlayView.wantsLayer = true
     gridOverlayView.layerContentsRedrawPolicy = .onSetNeedsDisplay
     gridOverlayView.isHidden = true
+    gridActivePillView = SquirrelGridPillView(frame: frameRect)
+    gridActivePillView.wantsLayer = true
+    gridActivePillView.isHidden = true
+    gridHighlightOverlayView = SquirrelGridOverlayView(frame: frameRect)
+    gridHighlightOverlayView.drawsHighlightedText = true
+    gridHighlightOverlayView.wantsLayer = true
+    gridHighlightOverlayView.layerContentsRedrawPolicy = .onSetNeedsDisplay
+    gridHighlightOverlayView.isHidden = true
     super.init(frame: frameRect)
     textContainer.lineFragmentPadding = 0
     self.wantsLayer = true
@@ -400,12 +427,16 @@ final class SquirrelView: NSView {
     self.gridLayout = nil
     self.gridOverlayView.gridLayout = nil
     self.gridOverlayView.layer?.mask = nil
+    self.gridHighlightOverlayView.gridLayout = nil
+    self.gridHighlightOverlayView.layer?.mask = nil
     self.gridRootLayer?.removeFromSuperlayer()
     self.gridRootLayer = nil
     self.lastGridCompositionID = nil
     self.lastGridCardSize = .zero
     self.textView.isHidden = false
     self.gridOverlayView.isHidden = true
+    self.gridActivePillView.isHidden = true
+    self.gridHighlightOverlayView.isHidden = true
     self.candidateRanges = candidateRanges
     self.hilightedIndex = hilightedIndex
     self.preeditRange = preeditRange
@@ -422,18 +453,26 @@ final class SquirrelView: NSView {
     lastGridCardSize = .zero
     lastGridRow0Cells = []
     gridOverlayView.clearCellTransitions()
+    gridHighlightOverlayView.clearCellTransitions()
   }
 
   func drawGrid(_ layout: SquirrelGridLayout, resizeAnchor: SquirrelGridResizeAnchor = .top) {
     self.gridLayout = layout
     self.gridOverlayView.gridLayout = layout
     self.gridOverlayView.theme = currentTheme
+    self.gridHighlightOverlayView.gridLayout = layout
+    self.gridHighlightOverlayView.theme = currentTheme
     self.textView.isHidden = true
     self.gridOverlayView.isHidden = false
     self.gridOverlayView.clearCellTransitions(redrawImmediately: false)
+    self.gridHighlightOverlayView.clearCellTransitions(redrawImmediately: false)
     updateGridLayers(layout, resizeAnchor: resizeAnchor)
     self.gridOverlayView.needsDisplay = true
     self.gridOverlayView.displayIfNeeded()
+    if !self.gridHighlightOverlayView.isHidden {
+      self.gridHighlightOverlayView.needsDisplay = true
+      self.gridHighlightOverlayView.displayIfNeeded()
+    }
   }
 
   func gridHitTest(at point: NSPoint) -> SquirrelGridHitResult {
@@ -1103,6 +1142,7 @@ private extension SquirrelView {
     gridColumnLayer.cornerCurve = .continuous
     gridHoverLayer.cornerCurve = .continuous
     gridActiveCellLayer.cornerCurve = .continuous
+    gridFallbackActiveCellLayer.cornerCurve = .continuous
     gridActiveRowBorderLayer.cornerCurve = .continuous
     gridActiveRowBorderLayer.backgroundColor = nil
     gridActiveRowBorderLayer.borderWidth = 1.5
@@ -1116,7 +1156,7 @@ private extension SquirrelView {
     gridCardClipLayer.addSublayer(gridColumnLayer)
     gridCardClipLayer.addSublayer(gridActiveRowBorderLayer)
     gridCardClipLayer.addSublayer(gridHoverLayer)
-    gridCardClipLayer.addSublayer(gridActiveCellLayer)
+    gridCardClipLayer.addSublayer(gridFallbackActiveCellLayer)
     gridCardClipLayer.addSublayer(gridDividerLayer)
     gridCardClipLayer.addSublayer(gridChevronLayer)
     root.addSublayer(gridShadowLayer)
@@ -1377,21 +1417,59 @@ private extension SquirrelView {
     }
 
     // Active cell highlight background.
+    if let pillLayer = gridActivePillView.layer, gridActiveCellLayer.superlayer !== pillLayer {
+      pillLayer.addSublayer(gridActiveCellLayer)
+    }
     gridActiveCellLayer.zPosition = 5
+    gridFallbackActiveCellLayer.zPosition = 5
     if let color = theme.highlightedBackColor, !layout.activeCellRect.isEmpty {
-      gridActiveCellLayer.isHidden = false
-      gridActiveCellLayer.backgroundColor = color.cgColor
-      if theme.shadowSize > 0 {
-        gridActiveCellLayer.shadowColor = NSColor.black.cgColor
-        gridActiveCellLayer.shadowOffset = NSSize(width: theme.shadowSize / 2, height: theme.shadowSize / 2)
-        gridActiveCellLayer.shadowRadius = theme.shadowSize
-        gridActiveCellLayer.shadowOpacity = 0.2
+      if layout.usePillTextMask {
+        gridFallbackActiveCellLayer.isHidden = true
+        gridActivePillView.isHidden = false
+        gridHighlightOverlayView.isHidden = false
+        gridActiveCellLayer.isHidden = false
+        gridActiveCellLayer.backgroundColor = color.cgColor
+        if theme.shadowSize > 0 {
+          gridActiveCellLayer.shadowColor = NSColor.black.cgColor
+          gridActiveCellLayer.shadowOffset = NSSize(width: theme.shadowSize / 2, height: theme.shadowSize / 2)
+          gridActiveCellLayer.shadowRadius = theme.shadowSize
+          gridActiveCellLayer.shadowOpacity = 0.2
+        } else {
+          gridActiveCellLayer.shadowOpacity = 0
+        }
+        applyAnimatedRect(layout.activeCellRect, to: gridActiveCellLayer, cornerRadius: cellRadius, animated: shouldAnimate)
+        if let hiLayer = gridHighlightOverlayView.layer {
+          if hiLayer.mask !== gridHighlightOverlayView.gridActiveTextMaskLayer {
+            hiLayer.mask = gridHighlightOverlayView.gridActiveTextMaskLayer
+          }
+          applyAnimatedRect(
+            layout.activeCellRect,
+            to: gridHighlightOverlayView.gridActiveTextMaskLayer,
+            cornerRadius: cellRadius,
+            animated: shouldAnimate
+          )
+        }
       } else {
-        gridActiveCellLayer.shadowOpacity = 0
+        gridActivePillView.isHidden = true
+        gridHighlightOverlayView.isHidden = true
+        gridActiveCellLayer.isHidden = true
+        gridFallbackActiveCellLayer.isHidden = false
+        gridFallbackActiveCellLayer.backgroundColor = color.cgColor
+        if theme.shadowSize > 0 {
+          gridFallbackActiveCellLayer.shadowColor = NSColor.black.cgColor
+          gridFallbackActiveCellLayer.shadowOffset = NSSize(width: theme.shadowSize / 2, height: theme.shadowSize / 2)
+          gridFallbackActiveCellLayer.shadowRadius = theme.shadowSize
+          gridFallbackActiveCellLayer.shadowOpacity = 0.2
+        } else {
+          gridFallbackActiveCellLayer.shadowOpacity = 0
+        }
+        applyAnimatedRect(layout.activeCellRect, to: gridFallbackActiveCellLayer, cornerRadius: cellRadius, animated: shouldAnimate)
       }
-      applyAnimatedRect(layout.activeCellRect, to: gridActiveCellLayer, cornerRadius: cellRadius, animated: shouldAnimate)
     } else {
+      gridActivePillView.isHidden = true
+      gridHighlightOverlayView.isHidden = true
       gridActiveCellLayer.isHidden = true
+      gridFallbackActiveCellLayer.isHidden = true
     }
 
     // Horizontal active row highlight when expanded.
@@ -1499,6 +1577,9 @@ private extension SquirrelView {
 
       if !specs.isEmpty {
         gridOverlayView.runCellTransitions(specs, clipRect: layout.gridContentRect, cellPaddingX: layout.cellPaddingX)
+        if !gridHighlightOverlayView.isHidden {
+          gridHighlightOverlayView.runCellTransitions(specs, clipRect: layout.gridContentRect, cellPaddingX: layout.cellPaddingX)
+        }
       }
     }
 

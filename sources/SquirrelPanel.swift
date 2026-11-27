@@ -80,6 +80,8 @@ final class SquirrelPanel: NSPanel {
     contentView.addSubview(view)
     contentView.addSubview(view.textView)
     contentView.addSubview(view.gridOverlayView)
+    contentView.addSubview(view.gridActivePillView)
+    contentView.addSubview(view.gridHighlightOverlayView)
     self.contentView = contentView
   }
 
@@ -687,6 +689,8 @@ final class SquirrelPanel: NSPanel {
 
     let gridStartX = outerPadX + rowBorderInsetX
     let gridStartY = contentY + rowBorderInsetY
+    let pillAlpha = theme.highlightedBackColor?.usingColorSpace(.sRGB)?.alphaComponent ?? 0
+    let usePillTextMask = (theme.highlightedBackColor != nil) && (pillAlpha >= 0.98)
     var visibleRows = [SquirrelGridRow]()
     var activeRowRect = NSRect.zero
     var activeCellRect = NSRect.zero
@@ -708,7 +712,13 @@ final class SquirrelPanel: NSPanel {
           candidate: cand,
           slot: cIdx,
           showLabel: !isExpanded || isRowActive,
-          isHighlighted: isCellActive
+          isHighlighted: usePillTextMask ? false : isCellActive
+        )
+        cell.highlightedAttributedString = formatCell(
+          candidate: cand,
+          slot: cIdx,
+          showLabel: !isExpanded || isRowActive,
+          isHighlighted: true
         )
         row.cells[cIdx] = cell
         if isCellActive {
@@ -786,6 +796,7 @@ final class SquirrelPanel: NSPanel {
       compositionID: compositionID,
       isExpanded: isExpanded,
       showColumnHighlight: false,
+      usePillTextMask: usePillTextMask,
       colWidths: colWidths,
       colOriginsX: colOriginsX,
       allRows: allRows,
@@ -864,6 +875,8 @@ private extension SquirrelPanel {
     gridCollapseResizeWorkItem = nil
     gridGlassBack?.isHidden = true
     gridBlurBack.isHidden = true
+    view.gridActivePillView.isHidden = true
+    view.gridHighlightOverlayView.isHidden = true
     self.hasShadow = true
     back.layer?.mask = view.shape
     currentScreen()
@@ -1123,6 +1136,12 @@ private extension SquirrelPanel {
       if view.gridOverlayView.frame != overlayFrame {
         view.gridOverlayView.frame = overlayFrame
       }
+      if view.gridActivePillView.frame != overlayFrame {
+        view.gridActivePillView.frame = overlayFrame
+      }
+      if view.gridHighlightOverlayView.frame != overlayFrame {
+        view.gridHighlightOverlayView.frame = overlayFrame
+      }
     }
 
     if !back.isHidden {
@@ -1204,6 +1223,12 @@ private extension SquirrelPanel {
         let finalOverlayFrame = NSRect(origin: NSPoint(x: pad, y: pad), size: layout.panelSize)
         if self.view.gridOverlayView.frame != finalOverlayFrame {
           self.view.gridOverlayView.frame = finalOverlayFrame
+        }
+        if self.view.gridActivePillView.frame != finalOverlayFrame {
+          self.view.gridActivePillView.frame = finalOverlayFrame
+        }
+        if self.view.gridHighlightOverlayView.frame != finalOverlayFrame {
+          self.view.gridHighlightOverlayView.frame = finalOverlayFrame
         }
         if let activeBack, !activeBack.isHidden, activeBack.frame != finalOverlayFrame {
           activeBack.frame = finalOverlayFrame
