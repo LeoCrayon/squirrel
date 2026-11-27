@@ -19,6 +19,9 @@ final class SquirrelTheme {
   enum GridRowStyle: String {
     case native, border
   }
+  enum GridBackgroundStyle: String {
+    case auto, glass, blur, solid
+  }
   enum RimeColorSpace {
     case displayP3, sRGB
     static func from(name: String) -> Self {
@@ -81,6 +84,7 @@ final class SquirrelTheme {
   private(set) var gridTopMarginRows: Int = 1
   private(set) var gridBottomMarginRows: Int = 1
   private(set) var gridRowStyle: GridRowStyle = .native
+  private(set) var gridBackgroundStyle: GridBackgroundStyle = .auto
   private(set) var gridRowBorderColor: NSColor?
 
   private var fonts = [NSFont]()
@@ -229,6 +233,28 @@ final class SquirrelTheme {
   var resolvedGridColumnBackColor: NSColor {
     (highlightedBackColor ?? .selectedTextBackgroundColor).withAlphaComponent(0.14)
   }
+  var resolvedGridBackgroundStyle: GridBackgroundStyle {
+    switch gridBackgroundStyle {
+    case .auto, .glass:
+      if #available(macOS 26.0, *) {
+        return .glass
+      } else {
+        return .blur
+      }
+    case .blur:
+      return .blur
+    case .solid:
+      return .solid
+    }
+  }
+  var resolvedGridCornerRadius: CGFloat {
+    switch resolvedGridBackgroundStyle {
+    case .glass:
+      return max(cornerRadius, 11)
+    case .blur, .solid, .auto:
+      return cornerRadius
+    }
+  }
 
   func load(config: SquirrelConfig, dark: Bool) {
     linear ?= config.getString("style/candidate_list_layout").map { $0 == "linear" }
@@ -248,6 +274,7 @@ final class SquirrelTheme {
     gridTopMarginRows ?= config.getInt("style/grid_top_margin_rows").map { max(0, $0) }
     gridBottomMarginRows ?= config.getInt("style/grid_bottom_margin_rows").map { max(0, $0) }
     gridRowStyle ?= .init(rawValue: config.getString("style/grid_row_style") ?? "")
+    gridBackgroundStyle ?= .init(rawValue: config.getString("style/grid_background_style") ?? "")
 
     statusMessageType ?= .init(rawValue: config.getString("style/status_message_type") ?? "")
     candidateFormat ?= config.getString("style/candidate_format")
@@ -314,6 +341,7 @@ final class SquirrelTheme {
         gridTopMarginRows ?= config.getInt("\(prefix)/grid_top_margin_rows").map { max(0, $0) }
         gridBottomMarginRows ?= config.getInt("\(prefix)/grid_bottom_margin_rows").map { max(0, $0) }
         gridRowStyle ?= .init(rawValue: config.getString("\(prefix)/grid_row_style") ?? "")
+        gridBackgroundStyle ?= .init(rawValue: config.getString("\(prefix)/grid_background_style") ?? "")
         candidateFormat ?= config.getString("\(prefix)/candidate_format")
         fontName ?= config.getString("\(prefix)/font_face")
         fontSize ?= config.getDouble("\(prefix)/font_point")

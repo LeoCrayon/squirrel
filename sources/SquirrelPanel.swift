@@ -10,6 +10,8 @@ import AppKit
 final class SquirrelPanel: NSPanel {
   private let view: SquirrelView
   private let back: NSView
+  private let gridGlassBack: NSView?
+  private let gridBlurBack: NSVisualEffectView
   var inputController: SquirrelInputController?
 
   var position: NSRect
@@ -43,6 +45,25 @@ final class SquirrelPanel: NSPanel {
     self.position = position
     self.view = SquirrelView(frame: position)
     self.back = Self.makeBackgroundView()
+    if #available(macOS 26.0, *) {
+      let glass = NSGlassEffectView()
+      glass.style = .regular
+      glass.tintColor = nil
+      glass.wantsLayer = true
+      glass.isHidden = true
+      self.gridGlassBack = glass
+    } else {
+      self.gridGlassBack = nil
+    }
+    let blur = NSVisualEffectView()
+    blur.blendingMode = .behindWindow
+    blur.material = .hudWindow
+    blur.state = .active
+    blur.wantsLayer = true
+    blur.layer?.cornerCurve = .continuous
+    blur.layer?.masksToBounds = true
+    blur.isHidden = true
+    self.gridBlurBack = blur
     super.init(contentRect: position, styleMask: .nonactivatingPanel, backing: .buffered, defer: true)
     self.level = .init(Int(CGShieldingWindowLevel()))
     self.hasShadow = true
@@ -52,6 +73,10 @@ final class SquirrelPanel: NSPanel {
     back.layer?.mask = view.shape
     let contentView = NSView()
     contentView.addSubview(back)
+    if let gridGlassBack {
+      contentView.addSubview(gridGlassBack)
+    }
+    contentView.addSubview(gridBlurBack)
     contentView.addSubview(view)
     contentView.addSubview(view.textView)
     contentView.addSubview(view.gridOverlayView)
@@ -837,6 +862,8 @@ private extension SquirrelPanel {
   func show() {
     gridCollapseResizeWorkItem?.cancel()
     gridCollapseResizeWorkItem = nil
+    gridGlassBack?.isHidden = true
+    gridBlurBack.isHidden = true
     self.hasShadow = true
     back.layer?.mask = view.shape
     currentScreen()
@@ -1098,9 +1125,48 @@ private extension SquirrelPanel {
       }
     }
 
+    if !back.isHidden {
+      back.isHidden = true
+    }
+
+    let bgStyle = theme.resolvedGridBackgroundStyle
+    let cardCornerRadius = theme.resolvedGridCornerRadius
+    let activeBack: NSView?
+    switch bgStyle {
+    case .glass, .auto:
+      if !gridBlurBack.isHidden { gridBlurBack.isHidden = true }
+      if #available(macOS 26.0, *), let glass = gridGlassBack as? NSGlassEffectView {
+        if glass.cornerRadius != cardCornerRadius { glass.cornerRadius = cardCornerRadius }
+        if glass.appearance?.name != targetAppearance?.name { glass.appearance = targetAppearance }
+        if glass.isHidden { glass.isHidden = false }
+        activeBack = glass
+      } else {
+        activeBack = nil
+      }
+    case .blur:
+      if let gridGlassBack, !gridGlassBack.isHidden { gridGlassBack.isHidden = true }
+      if gridBlurBack.layer?.cornerRadius != cardCornerRadius {
+        gridBlurBack.layer?.cornerRadius = cardCornerRadius
+      }
+      if gridBlurBack.appearance?.name != targetAppearance?.name {
+        gridBlurBack.appearance = targetAppearance
+      }
+      if gridBlurBack.isHidden { gridBlurBack.isHidden = false }
+      activeBack = gridBlurBack
+    case .solid:
+      if let gridGlassBack, !gridGlassBack.isHidden { gridGlassBack.isHidden = true }
+      if !gridBlurBack.isHidden { gridBlurBack.isHidden = true }
+      activeBack = nil
+    }
+
+    let sizeChanged = sameComp && (lastGridCardScreenRect.size != layout.panelSize)
+    var pendingBackEndFrame: NSRect?
+
     CATransaction.begin()
     CATransaction.setDisableActions(true)
 
+    let targetBackFrame: NSRect
+    let activeBoundsHeight: CGFloat
     if isShrinkingBelowCursor {
       let tempHeight = max(targetWindowFrame.height, self.frame.height)
       let tempWidth = max(targetWindowFrame.width, self.frame.width)
@@ -1116,6 +1182,8 @@ private extension SquirrelPanel {
       let tempBounds = NSRect(origin: .zero, size: tempWindowFrame.size)
       let overlayY = tempBounds.height - pad - layout.panelSize.height
       applyContainerGeometry(windowBounds: tempBounds, overlayOrigin: NSPoint(x: pad, y: overlayY), overlaySize: layout.panelSize)
+      activeBoundsHeight = tempBounds.height
+      targetBackFrame = NSRect(x: pad, y: overlayY, width: layout.panelSize.width, height: layout.panelSize.height)
       view.drawGrid(layout, resizeAnchor: .top)
 
       let workItem = DispatchWorkItem { [weak self] in
@@ -1137,6 +1205,9 @@ private extension SquirrelPanel {
         if self.view.gridOverlayView.frame != finalOverlayFrame {
           self.view.gridOverlayView.frame = finalOverlayFrame
         }
+        if let activeBack, !activeBack.isHidden, activeBack.frame != finalOverlayFrame {
+          activeBack.frame = finalOverlayFrame
+        }
         self.view.gridOverlayView.layer?.mask = nil
         CATransaction.commit()
       }
@@ -1145,6 +1216,8 @@ private extension SquirrelPanel {
     } else if animate && flippedSide {
       let targetBounds = NSRect(origin: .zero, size: targetWindowFrame.size)
       applyContainerGeometry(windowBounds: targetBounds, overlayOrigin: NSPoint(x: pad, y: pad), overlaySize: layout.panelSize)
+      activeBoundsHeight = targetBounds.height
+      targetBackFrame = NSRect(x: pad, y: pad, width: layout.panelSize.width, height: layout.panelSize.height)
       view.drawGrid(layout, resizeAnchor: resizeAnchor)
     } else {
       if self.frame != targetWindowFrame {
@@ -1152,10 +1225,33 @@ private extension SquirrelPanel {
       }
       let targetBounds = NSRect(origin: .zero, size: targetWindowFrame.size)
       applyContainerGeometry(windowBounds: targetBounds, overlayOrigin: NSPoint(x: pad, y: pad), overlaySize: layout.panelSize)
+      activeBoundsHeight = targetBounds.height
+      targetBackFrame = NSRect(x: pad, y: pad, width: layout.panelSize.width, height: layout.panelSize.height)
       view.drawGrid(layout, resizeAnchor: resizeAnchor)
     }
 
+    if let activeBack {
+      if animate && sizeChanged && !flippedSide {
+        let fromY = resizeAnchor == .top
+          ? (activeBoundsHeight - pad - lastGridCardScreenRect.height)
+          : pad
+        let fromBackFrame = NSRect(x: pad, y: fromY, width: lastGridCardScreenRect.width, height: lastGridCardScreenRect.height)
+        activeBack.frame = fromBackFrame
+        pendingBackEndFrame = targetBackFrame
+      } else if activeBack.frame != targetBackFrame {
+        activeBack.frame = targetBackFrame
+      }
+    }
+
     CATransaction.commit()
+
+    if let activeBack, let endFrame = pendingBackEndFrame {
+      NSAnimationContext.runAnimationGroup { ctx in
+        ctx.duration = 0.22
+        ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
+        activeBack.animator().frame = endFrame
+      }
+    }
 
     if animate && flippedSide {
       NSAnimationContext.runAnimationGroup { ctx in
@@ -1163,25 +1259,6 @@ private extension SquirrelPanel {
         ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
         self.animator().setFrame(targetWindowFrame, display: false)
       }
-    }
-
-    if theme.translucency {
-      back.layer?.mask = nil
-      back.layer?.cornerRadius = theme.cornerRadius
-      back.layer?.cornerCurve = .continuous
-      back.layer?.masksToBounds = true
-      let backFrame = NSRect(x: pad, y: pad, width: layout.panelSize.width, height: layout.panelSize.height)
-      if back.frame != backFrame {
-        back.frame = backFrame
-      }
-      if back.appearance?.name != NSApp.effectiveAppearance.name {
-        back.appearance = NSApp.effectiveAppearance
-      }
-      if back.isHidden {
-        back.isHidden = false
-      }
-    } else if !back.isHidden {
-      back.isHidden = true
     }
 
     lastGridCardScreenRect = cardScreenRect

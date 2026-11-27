@@ -1126,7 +1126,7 @@ private extension SquirrelView {
     return root
   }
 
-  func applyBoxRect(_ targetRect: NSRect, from fromRect: NSRect?, to layer: CALayer, cornerRadius: CGFloat, animated: Bool) {
+  func applyBoxRect(_ targetRect: NSRect, from fromRect: NSRect?, to layer: CALayer, cornerRadius: CGFloat, animated: Bool, useEaseOut: Bool = false) {
     let targetBounds = NSRect(origin: .zero, size: targetRect.size)
     let targetPos = NSPoint(x: targetRect.midX, y: targetRect.midY)
     layer.cornerRadius = cornerRadius
@@ -1138,24 +1138,42 @@ private extension SquirrelView {
       let fromBounds = NSRect(origin: .zero, size: fromRect.size)
       let fromPos = NSPoint(x: fromRect.midX, y: fromRect.midY)
 
-      let springPos = CASpringAnimation(keyPath: "position")
-      springPos.fromValue = NSValue(point: fromPos)
-      springPos.toValue = NSValue(point: targetPos)
-      springPos.stiffness = 420
-      springPos.damping = 32
-      springPos.mass = 0.85
-      springPos.duration = springPos.settlingDuration
+      if useEaseOut {
+        let timing = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
+        let posAnim = CABasicAnimation(keyPath: "position")
+        posAnim.fromValue = NSValue(point: fromPos)
+        posAnim.toValue = NSValue(point: targetPos)
+        posAnim.duration = 0.22
+        posAnim.timingFunction = timing
 
-      let springBounds = CASpringAnimation(keyPath: "bounds")
-      springBounds.fromValue = NSValue(rect: fromBounds)
-      springBounds.toValue = NSValue(rect: targetBounds)
-      springBounds.stiffness = 420
-      springBounds.damping = 32
-      springBounds.mass = 0.85
-      springBounds.duration = springBounds.settlingDuration
+        let boundsAnim = CABasicAnimation(keyPath: "bounds")
+        boundsAnim.fromValue = NSValue(rect: fromBounds)
+        boundsAnim.toValue = NSValue(rect: targetBounds)
+        boundsAnim.duration = 0.22
+        boundsAnim.timingFunction = timing
 
-      layer.add(springPos, forKey: "position")
-      layer.add(springBounds, forKey: "bounds")
+        layer.add(posAnim, forKey: "position")
+        layer.add(boundsAnim, forKey: "bounds")
+      } else {
+        let springPos = CASpringAnimation(keyPath: "position")
+        springPos.fromValue = NSValue(point: fromPos)
+        springPos.toValue = NSValue(point: targetPos)
+        springPos.stiffness = 420
+        springPos.damping = 32
+        springPos.mass = 0.85
+        springPos.duration = springPos.settlingDuration
+
+        let springBounds = CASpringAnimation(keyPath: "bounds")
+        springBounds.fromValue = NSValue(rect: fromBounds)
+        springBounds.toValue = NSValue(rect: targetBounds)
+        springBounds.stiffness = 420
+        springBounds.damping = 32
+        springBounds.mass = 0.85
+        springBounds.duration = springBounds.settlingDuration
+
+        layer.add(springPos, forKey: "position")
+        layer.add(springBounds, forKey: "bounds")
+      }
     } else {
       layer.removeAnimation(forKey: "position")
       layer.removeAnimation(forKey: "bounds")
@@ -1247,18 +1265,43 @@ private extension SquirrelView {
     let root = ensureGridRootLayer()
     root.frame = self.bounds
 
-    gridShadowLayer.backgroundColor = theme.backgroundColor.cgColor
-    gridShadowLayer.shadowOpacity = isDark ? 0.42 : 0.18
-    applyBoxRect(targetCardRect, from: fromCardRect, to: gridShadowLayer, cornerRadius: theme.cornerRadius, animated: shouldAnimate && sizeChanged)
+    let bgStyle = theme.resolvedGridBackgroundStyle
+    let cardCornerRadius = theme.resolvedGridCornerRadius
+    let useSmoothEase = (bgStyle == .glass || bgStyle == .blur)
 
-    if theme.borderLineWidth > 0, let color = theme.borderColor {
-      gridCardClipLayer.borderWidth = theme.borderLineWidth
-      gridCardClipLayer.borderColor = color.cgColor
-    } else {
+    switch bgStyle {
+    case .glass, .auto:
+      gridShadowLayer.isHidden = true
+      gridShadowLayer.removeAnimation(forKey: "position")
+      gridShadowLayer.removeAnimation(forKey: "bounds")
+      gridCardClipLayer.backgroundColor = nil
+      gridCardClipLayer.borderWidth = 0
+    case .blur:
+      gridShadowLayer.isHidden = false
+      gridShadowLayer.backgroundColor = NSColor.clear.cgColor
+      gridShadowLayer.shadowOpacity = 0
+      applyBoxRect(targetCardRect, from: fromCardRect, to: gridShadowLayer, cornerRadius: cardCornerRadius, animated: shouldAnimate && sizeChanged, useEaseOut: useSmoothEase)
+      let tint = theme.backgroundColor.alphaComponent < 0.99
+        ? theme.backgroundColor
+        : theme.backgroundColor.withAlphaComponent(isDark ? 0.16 : 0.20)
+      gridCardClipLayer.backgroundColor = tint.cgColor
       gridCardClipLayer.borderWidth = 0.5
-      gridCardClipLayer.borderColor = NSColor.labelColor.withAlphaComponent(isDark ? 0.15 : 0.10).cgColor
+      gridCardClipLayer.borderColor = NSColor.labelColor.withAlphaComponent(isDark ? 0.20 : 0.12).cgColor
+    case .solid:
+      gridShadowLayer.isHidden = false
+      gridShadowLayer.backgroundColor = theme.backgroundColor.cgColor
+      gridShadowLayer.shadowOpacity = isDark ? 0.42 : 0.18
+      applyBoxRect(targetCardRect, from: fromCardRect, to: gridShadowLayer, cornerRadius: cardCornerRadius, animated: shouldAnimate && sizeChanged, useEaseOut: false)
+      gridCardClipLayer.backgroundColor = nil
+      if theme.borderLineWidth > 0, let color = theme.borderColor {
+        gridCardClipLayer.borderWidth = theme.borderLineWidth
+        gridCardClipLayer.borderColor = color.cgColor
+      } else {
+        gridCardClipLayer.borderWidth = 0.5
+        gridCardClipLayer.borderColor = NSColor.labelColor.withAlphaComponent(isDark ? 0.15 : 0.10).cgColor
+      }
     }
-    applyBoxRect(targetCardRect, from: fromCardRect, to: gridCardClipLayer, cornerRadius: theme.cornerRadius, animated: shouldAnimate && sizeChanged)
+    applyBoxRect(targetCardRect, from: fromCardRect, to: gridCardClipLayer, cornerRadius: cardCornerRadius, animated: shouldAnimate && sizeChanged, useEaseOut: useSmoothEase)
 
     if let overlayLayer = gridOverlayView.layer {
       overlayLayer.removeAnimation(forKey: "gridTextFade")
@@ -1276,7 +1319,7 @@ private extension SquirrelView {
             height: $0.height
           )
         }
-        applyBoxRect(targetMaskRect, from: fromMaskRect, to: gridOverlayView.gridTextMaskLayer, cornerRadius: theme.cornerRadius, animated: true)
+        applyBoxRect(targetMaskRect, from: fromMaskRect, to: gridOverlayView.gridTextMaskLayer, cornerRadius: cardCornerRadius, animated: true, useEaseOut: useSmoothEase)
       } else {
         gridOverlayView.gridTextMaskLayer.removeAnimation(forKey: "position")
         gridOverlayView.gridTextMaskLayer.removeAnimation(forKey: "bounds")
